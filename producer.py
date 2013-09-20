@@ -3,7 +3,7 @@ import re
 from kafka.client import KafkaClient
 from kafka.producer import SimpleProducer
 
-kafka = KafkaClient("crawl-db02.us.archive.org", 9092)
+kafka = KafkaClient("kafka-setup.archive.org", 9092)
 wikiIRCProducer = SimpleProducer(kafka, "wiki-irc", async=False,
                           req_acks=SimpleProducer.ACK_AFTER_LOCAL_WRITE)
 
