@@ -121,14 +121,14 @@ def main(argv):
             if re.match(br'^WARC/\d+\.\d+\r\n$', line):
                 state = WarcReadStates.IN_HEADER
             else:
-                raise StandardError('warc header not found where expected')
+                raise Exception('warc header not found where expected')
 
         elif state == WarcReadStates.IN_HEADER:
             if line == b'\r\n':
                 state = WarcReadStates.IN_CONTENT
                 content_bytes_read = 0
                 if content_length == None:
-                    raise StandardError('Content-Length header not found')
+                    raise Exception('Content-Length header not found')
             m = re.match(br'^(?i)Content-Length: (\d+)\r\n$', line)
             if m != None:
                 content_length = int(m.group(1))
@@ -138,12 +138,12 @@ def main(argv):
 
         elif state == WarcReadStates.EXPECTING_RECORD_TERMINATOR_1:
             if line != b'\r\n':
-                raise StandardError('did not see first expected \\r\\n')
+                raise Exception('did not see first expected \\r\\n')
             state = WarcReadStates.EXPECTING_RECORD_TERMINATOR_2
 
         elif state == WarcReadStates.EXPECTING_RECORD_TERMINATOR_2:
             if line != b'\r\n':
-                raise StandardError('did not see second expected \\r\\n')
+                raise Exception('did not see second expected \\r\\n')
             state = WarcReadStates.EXPECTING_HEADER
 
         elif state == WarcReadStates.IN_CONTENT:
@@ -180,7 +180,7 @@ def main(argv):
                 content_bytes_read = None
                 url = None
             elif content_bytes_read > content_length:
-                raise StandardError('warc record too long')
+                raise Exception('warc record too long')
 
         readlimit = 8192
         if state == WarcReadStates.IN_CONTENT:
