@@ -3,6 +3,9 @@
 """
 read WordPress post firehose, archive it, and schedule URLs for crawling.
 """
+import gevent.monkey
+gevent.monkey.patch_all()
+
 import os
 import sys
 import re
@@ -12,14 +15,11 @@ import gevent
 from gevent import socket
 from gevent.event import Event
 from gevent.queue import Queue, Empty
-import gevent.monkey
-#from gevent import monkey
-
-gevent.monkey.patch_socket()
 
 import httplib
 import urllib2
 import json
+import base64
 import logging
 import time
 from datetime import datetime
@@ -240,11 +240,19 @@ class FirehoseDownloader(object):
 
     def run(self):
         while 1:
+            # we cannot use HTTPBasicAuthHandler because server does not
+            # request authentication.
+            headers = {}
+            req = urllib2.Request(endpoint)
+            if options.auth:
+                auth = 'Basic {}'.format(base64.b64encode(options.auth).strip())
+                req.add_header('Authorization', auth)
             opener = urllib2.build_opener(
-                urllib2.HTTPBasicAuthHandler(password_manager)
+                #urllib2.HTTPBasicAuthHandler(password_manager)
                 )
             try:
-                f = opener.open(endpoint)
+                #f = opener.open(endpoint)
+                f = opener.open(req)
                 logging.info('firehose stream opened')
                 self.stats['connection.success'] += 1
                 self.retry_interval = self.INITIAL_RETRY_INTERVAL
@@ -349,7 +357,7 @@ archiver = Archiver(destdir=arcdir, prefix=options.prefix,
                     rollsize=int(1e9), rolldate='%Y%m%d')
 
 pipelines = [
-    Pipeline(HeadquarterSubmitter(options.hq, options.hqjob), 'hq', 100)
+    Pipeline(HeadquarterSubmitter(options.hq, options.hqjob), 'hq', 1000)
     ]
 for pl in pipelines:
     gevent.spawn(pl.run)
