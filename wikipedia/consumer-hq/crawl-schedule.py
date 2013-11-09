@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 #
 import sys
 import os
@@ -131,6 +131,10 @@ statsubmitter.start()
 try:
     #g.join()
     scheduler.pull_and_submit()
+except Exception as ex:
+    logging.warn('scheduler exitting on error', exc_info=1)
+    print >>sys.stderr, "threads:"
+    for th in threading.enumerate():
+        print "  {}".format(th)
 finally:
     scheduler.shutdown()
-
