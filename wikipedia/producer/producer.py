@@ -3,9 +3,12 @@ import re
 from kafka.client import KafkaClient
 from kafka.producer import SimpleProducer
 
-kafka = KafkaClient("kafka-setup.archive.org", 9092)
+kafka = KafkaClient("crawl-db02.us.archive.org", 9092)
 wikiIRCProducer = SimpleProducer(kafka, "wiki-irc", async=False,
                           req_acks=SimpleProducer.ACK_AFTER_LOCAL_WRITE)
+
+#wikiIRCProducer = SimpleProducer(kafka, "wiki-irc");
+#wikiLinksProducer = SimpleProducer(kafka, "wiki-links");
 
 wikiLinksProducer = SimpleProducer(kafka, "wiki-links", async=False,
                           req_acks=SimpleProducer.ACK_AFTER_LOCAL_WRITE)
@@ -33,7 +36,7 @@ for line in sys.stdin:
 			if response and response[0].error == 0:
     				kafkaSuccess = True
 	if lineToConsider and not kafkaSuccess:
+		# FLUSH to disk
 		#print this line out so we can feed these lines from STDIN to this script at a later time (retry failed push) 
 		print line
-
 kafka.close()	
