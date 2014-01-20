@@ -211,7 +211,7 @@ class StatSubmitter(object):
                 sock.connect(self.server)
             except:
                 logging.warn("couldn't connect to carbon server %s:%d",
-                             self.server)
+                             *self.server)
                 continue
             try:
                 sock.sendall(''.join(msg))
@@ -267,6 +267,7 @@ class FirehoseDownloader(object):
                     self.MAX_RETRY_INTERVAL
                     )
                 logging.info('retrying connection')
+                continue
                     
             for line in f:
                 if line == '\n': continue
