@@ -34,7 +34,7 @@ from crawllib.graphite import StatSubmitter
 KAFKA_SERVER = ('crawl-db02.us.archive.org', 9092)
 ZKHOSTS = ','.join('crawl-zk{:d}.us.archive.org'.format(n)
                    for n in range(1, 4))
-HQ_BASE_URL = 'http://crawl-hq05.us.archive.org/hq/jobs'
+HQ_BASE_URL = 'http://crawl-hq06.us.archive.org/hq/jobs'
 HQ_JOB = 'wikipedia'
 
 CARBON_SERVER = 'crawl-monitor.us.archive.org:2003'
