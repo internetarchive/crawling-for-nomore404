@@ -6,6 +6,7 @@ import re
 from urllib import quote
 import itertools
 import logging
+import socket
 
 # kafka.client calls logging.getLogger() at module level!!
 logging.basicConfig(level=logging.DEBUG, filename='crawl-schedule.log',
@@ -88,36 +89,40 @@ class CrawlScheduler(object):
         while 1:
             # iteration stops once queue becomes empty
             curls = []
-            for mao in self.consumer:
-                message = mao.message
-                #print '{} {}'.format(mao.offset, message)
-                o = ujson.loads(message.value.rstrip())
-                links = o.get('links')
-                language = o.get('language').encode('utf-8')
-                article = o.get('article').encode('utf-8')
+            try:
+                for mao in self.consumer:
+                    message = mao.message
+                    #print '{} {}'.format(mao.offset, message)
+                    o = ujson.loads(message.value.rstrip())
+                    links = o.get('links')
+                    language = o.get('language').encode('utf-8')
+                    article = o.get('article').encode('utf-8')
 
-                if language and article:
-                    via = 'http://{}.wikipedia.org/wiki/{}'.format(
-                        language, quote(article, safe=''))
-                    for link in links:
-                        if useful_link(link):
-                            curl = dict(u=link)
-                            logging.debug('curl %s', curl)
-                            curls.append(curl)
-                            self.stats['fetched'] += 1
-                            if len(curls) >= 100:
-                                self.submit(curls)
-                                curls = []
-                        else:
-                            self.stats['discarded'] += 1
-            if len(curls) > 0:
-                self.submit(curls)
-                curls = []
-                empty_count = 0
-            empty_count += 1
-            # report queue exhaustion only once.
-            if empty_count == 1:
-                logging.info('queue exhausted')
+                    if language and article:
+                        via = 'http://{}.wikipedia.org/wiki/{}'.format(
+                            language, quote(article, safe=''))
+                        for link in links:
+                            if useful_link(link):
+                                curl = dict(u=link)
+                                logging.debug('curl %s', curl)
+                                curls.append(curl)
+                                self.stats['fetched'] += 1
+                                if len(curls) >= 100:
+                                    self.submit(curls)
+                                    curls = []
+                            else:
+                                self.stats['discarded'] += 1
+                if len(curls) > 0:
+                    self.submit(curls)
+                    curls = []
+                    empty_count = 0
+                empty_count += 1
+                # report queue exhaustion only once.
+                if empty_count == 1:
+                    logging.info('queue exhausted')
+            except socket.error as ex:
+                # typically timeout
+                logging.warn('error reading from Kafka (%s)', ex)
             time.sleep(1)
 
 scheduler = CrawlScheduler()
