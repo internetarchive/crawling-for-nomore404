@@ -15,6 +15,6 @@ setup(
         'crawllib>=0.1.0-4',
         ],
     dependency_links=[
-        ('git+file:///home/kenji/git/crawllib.git#egg=crawllib-0.1.0-4')
+        ('http://git.archive.org/kenji/python-crawllib/repository/archive.tar.gz#egg=crawllib-0.1.0-4')
         ]
     )
