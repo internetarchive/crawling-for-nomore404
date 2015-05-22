@@ -106,7 +106,7 @@ class FeedScheduler(object):
         except urllib2.HTTPError as ex:
             if ex.code == 304:
                 # Not Modified
-                self.log.info('feed not modified since %s', self.feed_url,
+                self.log.info('feed %s not modified since %s', self.feed_url,
                               httpdate(self.last_time))
                 return
             self.log.warn('%s %s %s', self.feed_url, ex.code, ex.reason)
