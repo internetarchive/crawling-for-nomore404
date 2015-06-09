@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
-WORKDIR=$1
+BIN=$(cd $(dirname $0); pwd)
+WORKDIR=$BIN/..
+export PATH=$BIN:$PATH
+LOGDIR=$WORKDIR/logs
 cd $WORKDIR
-node monitor.js | python producer.py
+/home/ia/bin/logger -f $LOGDIR/retries.log -fe $LOGDIR/retries.err \
+  bash -c "shim $BIN/monitor.js | producer.py"
+
