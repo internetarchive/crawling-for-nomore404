@@ -168,6 +168,10 @@ function parseMessage(message, to) {
   editor = language + ':' + editor;
   // diff URL
   var jsonUrl = flagsAndDiffUrl[1];
+  if (!jsonUrl) {
+    console.warn('no DiffUrl field in the second component: ' + message)
+    return;
+  }
   if ((jsonUrl.indexOf('diff') !== -1) &&
       (jsonUrl.indexOf('oldid') !== -1)) {
     var toRev = jsonUrl.replace(/.*\?diff=(\d+).*/, '$1');
