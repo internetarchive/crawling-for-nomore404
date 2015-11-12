@@ -16,23 +16,16 @@ logging.basicConfig(level=logging.DEBUG, filename='crawl-schedule.log',
 import ujson
 
 import threading
-#import gevent
-#from gevent import socket
-#import gevent.monkey
-
-#gevent.monkey.patch_socket()
 
 import time
 import urllib2
 from kafka.client import KafkaClient
-from kafka.zookeeper import ZSimpleConsumer
 from kafka.consumer import SimpleConsumer
-from kafka.common import KAFKA_THREAD_DRIVER
 from crawllib.headquarter import HeadquarterSubmitter
 from crawllib.graphite import StatSubmitter
 
 # TODO put these consts in a config file
-KAFKA_SERVER = ('crawl-db02.us.archive.org', 9092)
+KAFKA_SERVER = ','.join(['crawl-db02.us.archive.org:9092'])
 ZKHOSTS = ','.join('crawl-zk{:d}.us.archive.org'.format(n)
                    for n in range(1, 4))
 HQ_BASE_URL = 'http://crawl-hq06.us.archive.org/hq/jobs'
@@ -40,6 +33,9 @@ HQ_JOB = 'wikipedia'
 
 CARBON_SERVER = 'crawl-monitor.us.archive.org:2003'
 STAT_BASE = 'crawl.wikipedia.links'
+
+KAFKA_CONSUMER_GROUP = "crawl"
+KAFKA_TOPIC = "wiki-links"
 
 def useful_link(url):
     if not re.match(r'https?://', url):
@@ -50,17 +46,10 @@ def useful_link(url):
 
 class CrawlScheduler(object):
     def __init__(self):
-        if False:
-            self.kafka = KafkaClient(*KAFKA_SERVER)
-            self.consumer = SimpleConsumer(self.kafka, "crawl", "wiki-links",
-                                           driver_type=KAFKA_THREAD_DRIVER,
-                                           auto_commit=False)
-        else:
-            self.kafka = None
-            self.consumer = ZSimpleConsumer(ZKHOSTS, "crawl", "wiki-links",
-                                            driver_type=KAFKA_THREAD_DRIVER,
-                                            manage_offsets=True,
-                                            auto_commit=False)
+        self.kafka = KafkaClient(hosts=KAFKA_SERVER)
+        self.consumer = SimpleConsumer(
+            self.kafka, KAFKA_CONSUMER_GROUP, KAFKA_TOPIC,
+            auto_commit=True)
 
         self.submitter = HeadquarterSubmitter(HQ_BASE_URL, HQ_JOB)
 
@@ -125,6 +114,36 @@ class CrawlScheduler(object):
                 logging.warn('error reading from Kafka (%s)', ex)
             time.sleep(1)
 
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument('-c', '--config')
+config_actions = [
+    parser.add_argument('--kafka-server'),
+    parser.add_argument('--zkhosts'),
+    parser.add_argument('--hq-base-url'),
+    parser.add_argument('--hq-job'),
+    parser.add_argument('--carbon-server'),
+    parser.add_argument('--stat-base'),
+    parser.add_argument('--kafka-consumer-group'),
+    parser.add_argument('--kafka-topic')
+    ]
+
+args = parser.parse_args()
+
+if args.config:
+    scope = dict()
+    execfile(args.config, scope)
+    for k, v in scope.items():
+        if k and 'A' <= k[0] <= 'Z':
+            globals()[k] = v
+for a in config_actions:
+    value = getattr(args, a.dest)
+    # if option is not specified in command line, use default values
+    # provided either by config file, or code above.
+    if value is not None:
+        globals()[a.dest.upper()] = value
+
 scheduler = CrawlScheduler()
 statsubmitter = threading.Thread(
     target=StatSubmitter(CARBON_SERVER, STAT_BASE, scheduler.stats).run
@@ -132,9 +151,7 @@ statsubmitter = threading.Thread(
 statsubmitter.setDaemon(True)
 statsubmitter.start()
 
-#g = gevent.spawn(pull_and_submit)
 try:
-    #g.join()
     scheduler.pull_and_submit()
 except Exception as ex:
     logging.warn('scheduler exitting on error', exc_info=1)

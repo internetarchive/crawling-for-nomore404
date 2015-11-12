@@ -1,7 +1,4 @@
-kazoo==1.3.1
 ujson==1.33
-# requires specific version of kafka-python with zookeeper support
-# libevent-dev must be installed.
-git+https://github.com/kngenie/kafka-python@merge-zkcommit#egg=kafka-python
-# crawllib has not been published to external repository yet
-/home/kenji/crawllib
+kafka-python==0.9.4
+# private - from local repository
+crawllib
