@@ -49,7 +49,8 @@ class CrawlScheduler(object):
         self.kafka = KafkaClient(hosts=KAFKA_SERVER)
         self.consumer = SimpleConsumer(
             self.kafka, KAFKA_CONSUMER_GROUP, KAFKA_TOPIC,
-            auto_commit=True)
+            auto_commit=True,
+            max_buffer_size=1024*1024)
 
         self.submitter = HeadquarterSubmitter(HQ_BASE_URL, HQ_JOB)
 
