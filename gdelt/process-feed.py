@@ -11,12 +11,13 @@ import logging
 import time
 from datetime import datetime
 from calendar import timegm
-from ConfigParser import ConfigParser
+import yaml
 
+from argparse import ArgumentParser
 from gdelt.feed import FeedReader, Deduper
 from crawllib.headquarter import HeadquarterSubmitter
 
-CONFIG_FILE = 'config.ini'
+CONFIG_FILE = 'config.yaml'
 
 def crawluri(urls):
     for url in urls:
@@ -40,7 +41,8 @@ class FeedScheduler(object):
     def __init__(self, feed_url, hqbase, hqjob,
                  datadir='data', timeout=20,
                  check_interval=-1):
-        self.log = logging.getLogger(__name__)
+        self.log = logging.getLogger(
+            'gdelt.{0.__name__}'.format(FeedScheduler))
         self.feed_url = feed_url
         self.hqbase = hqbase
         self.hqjob = hqjob
@@ -74,11 +76,14 @@ class FeedScheduler(object):
             except Exception as ex:
                 self.log.error('process1 failed', exc_info=1)
             if self.check_interval < 0:
-                self.log.info('exiting because check_interval < 0')
+                self.log.debug('exiting because check_interval < 0')
+                break
+            if test_mode:
+                self.log.debug('exiting because test_mode=True')
                 break
             dt = t + self.check_interval - time.time()
             if dt >= 1.0:
-                self.log.info('sleeping %ds until next cycle', int(dt))
+                self.log.debug('sleeping %ds until next cycle', int(dt))
                 time.sleep(dt)
 
     def process1(self):
@@ -88,7 +93,7 @@ class FeedScheduler(object):
         try:
             req = urllib2.Request(self.feed_url)
             if self.last_time:
-                self.log.info('last_time=%s', httpdate(self.last_time))
+                self.log.debug('last_time=%s', httpdate(self.last_time))
                 req.add_header('If-Modified-Since', httpdate(self.last_time))
             f = urllib2.urlopen(req, timeout=self.timeout)
             try:
@@ -106,7 +111,7 @@ class FeedScheduler(object):
         except urllib2.HTTPError as ex:
             if ex.code == 304:
                 # Not Modified
-                self.log.info('feed %s not modified since %s', self.feed_url,
+                self.log.debug('feed %s not modified since %s', self.feed_url,
                               httpdate(self.last_time))
                 return
             self.log.warn('%s %s %s', self.feed_url, ex.code, ex.reason)
@@ -118,31 +123,56 @@ class FeedScheduler(object):
         self.last_time = time.gmtime()
         
         urlcount = 0
-        with open(rfile, 'rb') as f:
-            reader = FeedReader(f)
-            for urls in batchup(crawluri(self.deduper.dedup(reader)), 500):
-                self.log.debug('submitting %s URLs...', len(urls))
-                self.hqclient.put(urls)
-                urlcount += len(urls)
-        self.log.info('submitted total %s URLs', urlcount)
+        slfile = os.path.join(self.datadir, 'sche-{}'.format(rid))
+        with open(slfile, 'wb') as sl:
+            with open(rfile, 'rb') as f:
+                reader = FeedReader(f)
+                for urls in batchup(crawluri(self.deduper.dedup(reader)), 500):
+                    self.log.debug('submitting %s URLs...', len(urls))
+                    if not test_mode:
+                        self.hqclient.put(urls)
+                    for curl in urls:
+                        sl.write(curl['u'])
+                        sl.write('\n')
+                    urlcount += len(urls)
+        self.log.info('submitted total %s URLs (see %s)',
+                      urlcount, os.path.basename(slfile))
 
         self.deduper.step()
 
-logging.basicConfig(
-    level=logging.INFO, filename='process.log',
-    format='%(asctime)s %(levelname)s %(name)s %(message)s')
+parser = ArgumentParser()
+parser.add_argument('--test', action='store_true', default=False,
+                    help='disables submission to HQ')
+parser.add_argument('--config', default=CONFIG_FILE,
+                    help='configuration file filename (default %(default)s)')
 
-if os.path.isfile(CONFIG_FILE):
-    config = ConfigParser()
-    config.read(CONFIG_FILE)
+args = parser.parse_args()
+
+test_mode = args.test
+config_file = args.config
+
+if os.path.isfile(config_file):
+    config = yaml.load(open(config_file))
 else:
-    print >>sys.stderr, "config file {} is not found".format(CONFIG_FILE)
+    print >>sys.stderr, "config file {} is not found".format(config_file)
     exit(1)
 
-if not config.has_section('gdelt'):
+logconf = config.get('logging')
+if logconf:
+    import logging.config
+    logging.config.dictConfig(logconf)
+else:
+    logging.basicConfig(
+        level=logging.INFO, filename='process.log',
+        format='%(asctime)s %(levelname)s %(name)s %(message)s')
+
+if 'gdelt' not in config:    
     print >>sys.stderr, "configuration must have 'gdelt' section"
     exit(1)
 
-sch = FeedScheduler(**dict(config.items('gdelt')))
-sch.process()
-    
+sch = FeedScheduler(**config['gdelt'])
+try:
+    sch.process()
+except KeyboardInterrupt:
+    pass
+

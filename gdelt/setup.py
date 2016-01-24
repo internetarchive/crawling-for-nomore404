@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='no404-gdelt',
-    version='0.1.0p1',
+    version='0.1.1',
     author='Kenji Nagahashi',
     author_email='kenji@archive.org',
     packages=['gdelt'],
@@ -13,8 +13,7 @@ setup(
         # requires libevent
         #'gevent>=0.13.6',
         'crawllib>=0.1.0-4',
+        'PyYAML',
+        'raven'
         ],
-    dependency_links=[
-        ('http://git.archive.org/kenji/python-crawllib/repository/archive.tar.gz#egg=crawllib-0.1.0-4')
-        ]
     )
