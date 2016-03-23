@@ -4,6 +4,5 @@ WORKDIR=$BIN/..
 export PATH=$BIN:$PATH
 LOGDIR=$WORKDIR/logs
 cd $WORKDIR
-/home/ia/bin/logger -f $LOGDIR/retries.log -fe $LOGDIR/retries.err \
-  bash -c "shim $BIN/monitor.js | producer.py"
-
+shim $BIN/monitor.js | producer.py --log $LOGDIR/retries.log \
+  --failures $LOGDIR/retries.err

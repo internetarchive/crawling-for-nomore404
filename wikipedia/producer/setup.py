@@ -13,7 +13,7 @@ Installation Steps:
 
 setup(
     name="No404WikipediaScraper",
-    version="0.1.0",
+    version="0.1.1",
     install_requires=[
         "nodeenv",
         "kafka-python==0.9.3"
