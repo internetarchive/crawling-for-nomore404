@@ -6,22 +6,13 @@ Twitter Stream API client inspired by
 - https://github.com/ultrabug/geventweet
 
 Features:
-- uses gevent
+- work with gevent
 - supports OAuth
 - retries upon connection failure transparently.
 """
-import gevent.monkey
-gevent.monkey.patch_all()
-
 import sys
-import gevent
+#import gevent
 #import gevent.ssl
-try:
-    import ujson as json
-except ImportError:
-    import json
-#import socket
-#import gevent.socket as socket
 import time
 import httplib
 import oauth2
@@ -53,10 +44,8 @@ class TweetStream(object):
     def __init__(self, path, configuration):
         """ Just set up the cache list and get first set """
         # prepopulating cache
-        #self._ioloop = ioloop or IOLoop.instance()
         self._callback = None
         self._error_callback = None
-        #self._clean_message = clean
         self._configuration = configuration
         consumer_key = self._get_configuration_key("consumer_key")
         consumer_secret = self._get_configuration_key(
@@ -75,8 +64,6 @@ class TweetStream(object):
             "twitter_stream_port", 443)
 
         parts = urlparse.urlparse(path)
-        #self._method = method
-        #self._callback = callback
         self._path = parts.path
         self._full_path = self._path
         self._parameters = {}
@@ -142,6 +129,10 @@ class TweetStream(object):
         return ''.join(buffers)
         
     def next(self):
+        """Return next tweet coming in. Blocks until tweet arrives.
+        Tweet is returned as raw bytes (not including EOL separating
+        tweets - not parsed JSON.
+        """
         while 1:
             if self._response is None:
                 if self._connection_tries > 0:
@@ -162,35 +153,8 @@ class TweetStream(object):
             except IOError as ex:
                 self._response = None
                 continue
-            #return json.loads(tweet.rstrip())
             return tweet.rstrip()
             
-    # def fetch(self, path, method="GET", callback=None):
-    #     """ Opens the request """
-    #     parts = urlparse.urlparse(path)
-    #     self._method = method
-    #     self._callback = callback
-    #     self._path = parts.path
-    #     self._full_path = self._path
-    #     self._parameters = {}
-    #     if parts.query:
-    #         self._full_path = "{}?{}".format(self._full_path, parts.query)
-
-    #     # throwing away empty or extra query arguments
-    #     self._parameters = dict([
-    #         (key, value[0]) for key, value in
-    #         urlparse.parse_qs(parts.query).iteritems()
-    #         if value
-    #     ])
-    #     self.open_twitter_stream()
-
-    # def on_error(self, error):
-    #     """ Just a wrapper for the error callback """
-    #     if self._error_callback:
-    #         return self._error_callback(error)
-    #     else:
-    #         raise error
-
     def _open_twitter_stream(self):
         """ Creates the client and watches stream """
         if self._twitter_stream_scheme == 'https':
@@ -199,23 +163,6 @@ class TweetStream(object):
         else:
             http = httplib.HTTPConnection(self._twitter_stream_host,
                                           self._twitter_stream_port)
-        # address_info = socket.getaddrinfo(self._twitter_stream_host,
-        #     self._twitter_stream_port, socket.AF_INET, socket.SOCK_STREAM,
-        #     0, 0)
-        # af, socktype, proto = address_info[0][:3]
-        # socket_address = address_info[0][-1]
-        # sock = socket.socket(af, socktype, proto)
-        # if self._twitter_stream_scheme == 'https':
-        #     sock = gevent.ssl.SSLScoket(sock)
-        # stream_class = IOStream
-        # if self._twitter_stream_scheme == "https":
-        #     stream_class = SSLIOStream
-        # self._twitter_stream = stream_class(sock, io_loop=self._ioloop)
-        # self._twitter_stream.connect(socket_address, self.on_connect)
-        # sock.connect(socket_address)
-        # self._twitter_stream_reader = sock.makefile()
-        # self._twitter_stream_writer = sock.makefile('w')
-
         parameters = dict(self._parameters,
                           oauth_token=self._token.key,
                           oauth_consumer_key=self._consumer.key,
@@ -223,14 +170,6 @@ class TweetStream(object):
                           oauth_nonce=oauth2.generate_nonce(),
                           oauth_timestamp=int(time.time())
                           )
-        # parameters = {
-        #     "oauth_token": self._token.key,
-        #     "oauth_consumer_key": self._consumer.key,
-        #     "oauth_version": "1.0",
-        #     "oauth_nonce": oauth2.generate_nonce(),
-        #     "oauth_timestamp": int(time.time())
-        # }
-        # parameters.update(self._parameters)
         request = oauth2.Request(
             method="GET",
             url="{}://{}{}".format(self._twitter_stream_scheme,
@@ -245,22 +184,6 @@ class TweetStream(object):
 
         http.request('GET', self._path, headers=headers)
 
-        # headers["Host"] = self._twitter_stream_host
-        # headers["User-Agent"] = "TweetStream"
-        # headers["Accept"] = "*/*"
-        # request = ["GET {} HTTP/1.1".format(self._full_path)]
-        # request.extend("{}: {}".format(key, value)
-        #                for key, value in headers.iteritems())
-        # request = "\r\n".join(request) + "\r\n\r\n"
-        # self._twitter_stream.write(str(request))
-        # self._twitter_stream.read_until("\r\n\r\n", self.on_headers)
-        #self._twitter_stream_writer.write(str(request))
-
-        # status_line = self._twitter_stream_reader.readline()
-        # response_code = status_line.replace("HTTP/1.1", "")
-        # response_code = int(response_code.split()[0].strip())
-        # if response_code != 200:
-
         self._response = http.getresponse()
         if self._response.status == 401:
             self._response.close()
@@ -271,78 +194,6 @@ class TweetStream(object):
             self._response = None
 
         self._rbuf = StringIO()
-
-    # def on_headers(self, response):
-    #     """ Starts monitoring for results. """
-    #     status_line = response.splitlines()[0]
-    #     response_code = status_line.replace("HTTP/1.1", "")
-    #     response_code = int(response_code.split()[0].strip())
-    #     if response_code != 200:
-    #         exception_string = "Could not connect: %s\n%s" % (
-    #             status_line, response)
-    #         headers = dict([
-    #             (l.split(":")[0].lower(), ":".join(l.split(":")[1:]))
-    #             for l in response.splitlines()[1:]
-    #         ])
-    #         content_length = int(headers.get("content-length") or 0)
-    #         if not content_length:
-    #             return self.on_error(Exception(exception_string))
-    #         def get_error_body(content):
-    #             full_string = "%s\n%s" % (exception_string, content)
-    #             self.on_error(Exception(full_string))
-    #         return self._twitter_stream.read_bytes(
-    #             content_length, get_error_body)
-            
-    #     self.wait_for_message()
-
-    # def wait_for_message(self):
-    #     """ Throw a read event on the stack. """
-    #     self._twitter_stream.read_until("\r\n", self.on_result)
-
-    # def on_result(self, response):
-    #     """ Gets length of next message and reads it """
-    #     if (response.strip() == ""):
-    #         return self.wait_for_message()
-    #     length = int(response.strip(), 16)
-    #     self._twitter_stream.read_bytes(length, self.parse_json)
-
-    # def parse_json(self, response):
-    #     """ Checks JSON message """
-    #     if not response.strip():
-    #         # Empty line, happens sometimes for keep alive
-    #         return self.wait_for_message()
-    #     try:
-    #         response = json.loads(response)
-    #     except ValueError:
-    #         print "Invalid response:"
-    #         print response
-    #         return self.wait_for_message()
-
-    #     self.parse_response(response)
-
-    # def parse_response(self, response):
-    #     """ Parse the twitter message """
-    #     if self._clean_message:
-    #         try:
-    #             text = response["text"]
-    #             name = response["user"]["name"]
-    #             username = response["user"]["screen_name"]
-    #             avatar = response["user"]["profile_image_url_https"]
-    #         except KeyError, exc:
-    #             print "Invalid tweet structure, missing %s" % exc
-    #             return self.wait_for_message()
-
-    #         response = {
-    #             "type": "tweet",
-    #             "text": text,
-    #             "avatar": avatar,
-    #             "name": name,
-    #             "username": username,
-    #             "time": int(time.time())
-    #         }
-    #     if self._callback:
-    #         self._callback(response)
-    #     self.wait_for_message()
 
 if __name__ == '__main__':
     import argparse
