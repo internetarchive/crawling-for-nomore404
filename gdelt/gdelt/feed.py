@@ -77,7 +77,6 @@ class Deduper(object):
 
 
 class URLHandler(object):
-	"""Normalizes and validates URL."""
 	def __init__(self, source):
 		self.log = logging.getLogger(
 			'{0}.{1.__name__}'.format(__name__,URLHandler))
