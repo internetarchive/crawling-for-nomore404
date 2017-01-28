@@ -105,12 +105,6 @@ class Feed(object):
 				handler = URLHandler(reader)
 				for urls in batchup(crawluri(self.deduper.dedup(handler)), 500):
 					self.log.debug('submitting %s URLs...', len(urls))
-					try:
-						jsdata = json.dumps(urls)
-					except:
-						for js in jsdata.split(','):
-							print js
-							
 					if not test_mode:
 						self.hqclient.put(urls)
 					for curl in urls:
