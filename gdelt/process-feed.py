@@ -14,7 +14,7 @@ from calendar import timegm
 import yaml
 
 from argparse import ArgumentParser
-from gdelt.feed import FeedReader, Deduper, URLFilter
+from gdelt.feed import FeedReader, Deduper, URLHandler
 from crawllib.headquarter import HeadquarterSubmitter
 
 import json
@@ -102,8 +102,8 @@ class Feed(object):
 		with open(slfile, 'wb') as sl:
 			with open(rfile, 'rb') as f:
 				reader = FeedReader(f)
-				urlfilter = URLFilter(reader)
-				for urls in batchup(crawluri(self.deduper.dedup(urlfilter)), 500):
+				handler = URLHandler(reader)
+				for urls in batchup(crawluri(self.deduper.dedup(handler)), 500):
 					self.log.debug('submitting %s URLs...', len(urls))
 					try:
 						jsdata = json.dumps(urls)

@@ -76,26 +76,15 @@ class Deduper(object):
 			self.log.warn('%s does not exist, step is no-op.', thisfile)
 
 
-class URLFilter(object):
-	"""Filter URLs from `FeedReader`."""
+class URLHandler(object):
+	"""Normalizes and validates URL."""
 	def __init__(self, source):
 		self.log = logging.getLogger(
-			'{0}.{1.__name__}'.format(__name__,URLFilter))
+			'{0}.{1.__name__}'.format(__name__,URLHandler))
 		self.source = source
 	
 	def __iter__(self):
 		return self
-		
-	def next(self):
-		while True:
-			url = next(self.source)
-			if re.match(quoted_url, url):
-				url = self.unquote_url(url)
-			valid = self.validate_url(url)
-			if not valid:
-				continue
-			else:
-				return url
 		
 	def unquote_url(self,url):
 		unq = unquote(url)
@@ -104,14 +93,26 @@ class URLFilter(object):
 		url = ''.join(chars)
 		return url
 	
-	# TODO: think through url validation rules and add them to the code.
+	# TODO: url validation rules instead of `urlsplit` test.
 	def validate_url(self,url):
 		try:
 			urlsplit(url)
 			return True
 		except Exception as ex:		
 			self.log.error('Invalid url: {}'.format(url), exc_info=1)
-			return False		
+			return False
+			
+	def next(self):
+		while True:
+			url = next(self.source)
+			# normalize escaped URL.
+			if re.match(quoted_url, url):
+				url = self.unquote_url(url)
+			valid = self.validate_url(url)
+			if not valid:
+				continue
+			else:
+				return url		
 
 			
 class FeedReader(object):
