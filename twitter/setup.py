@@ -2,9 +2,10 @@ from setuptools import setup, find_packages
 
 setup(
     name="twitter-archiver",
-    version="0.2.0",
+    version="0.3.0",
     author="Kenji Nagahashi",
     author_email="kenji@archive.org",
+    packages=find_packages(),
     install_requires=[
         'gevent',
         #'tornado',
@@ -14,12 +15,11 @@ setup(
         'ujson',
         'configobj',
         'oauth2-utf8==1.5.170',
-        ],
-    py_modules=[
-        'tweetstream',
+        'kafka-python'
         ],
     scripts=[
         'archivestream.py',
+        'kafkastream.py'
         ],
     zip_safe=False
     )
