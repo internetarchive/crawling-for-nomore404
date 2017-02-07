@@ -11,13 +11,13 @@ Features:
 - retries upon connection failure transparently.
 """
 import sys
-#import gevent
-#import gevent.ssl
 import time
 import httplib
 import oauth2
 import urlparse
 from cStringIO import StringIO
+
+import logging
 
 class MissingConfiguration(Exception):
     """Raised when a configuration value is not found."""
@@ -43,6 +43,8 @@ class TweetStream(object):
 
     def __init__(self, path, configuration):
         """ Just set up the cache list and get first set """
+        self._log = logging.getLogger(__name__)
+
         # prepopulating cache
         self._callback = None
         self._error_callback = None
@@ -151,6 +153,11 @@ class TweetStream(object):
                     continue
                 
             except IOError as ex:
+                self._log.info('failed to read line: %s', ex)
+                self._response = None
+                continue
+            except httplib.IncompleteRead as ex:
+                self._log.info('failed to read line: %s', ex)
                 self._response = None
                 continue
             return tweet.rstrip()
@@ -182,9 +189,11 @@ class TweetStream(object):
         headers = request.to_header()
         headers.update(self.HEADERS)
 
+        self._log.info('requesting GET %s', self._path)
         http.request('GET', self._path, headers=headers)
 
         self._response = http.getresponse()
+        self._log.info('got response %s', self._response.status)
         if self._response.status == 401:
             self._response.close()
             raise Exception('{} {}'.format(self._response.status,

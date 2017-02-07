@@ -61,7 +61,7 @@ except ConfigError as ex:
     exit(1)
 
 common_headers = {
-    'source': '/1.1/statuses/sample.json',
+    'Source': '/1.1/statuses/sample.json',
     }
 common_header_bytes = b''.join(
     '{}: {}\r\n'.format(n, v).encode('utf-8')
@@ -73,18 +73,18 @@ try:
 
     stream = TweetStream("/1.1/statuses/sample.json", tw_config)
     for tweet in stream:
-        buf = io.BytesIO(common_header_bytes)
+        buf = io.BytesIO()
+        buf.write(common_header_bytes)
         buf.write('Date: {}\r\n'.format(httpdate(time.time())).encode('ascii'))
         buf.write(b'\r\n')
         buf.write(tweet)
         buf.write(b'\r\n')
 
-        t0 = time.time()
-        
         payload = buf.getvalue()
+        t0 = time.time()
         producer.send(topic, payload)
         t = time.time() - t0
-        logging.info('message %d bytes %.0fmus', len(payload), t * 1000000)
+        logging.debug('message %d bytes %.0fmus', len(payload), t * 1000000)
 
 except KeyboardInterrupt as ex:
     pass
