@@ -47,11 +47,15 @@ try:
     topic = ks_config.get('topic')
     if not topic:
         raise ConfigError('kafkastream.topic config is required')
-    logfile = ks_config.get('logfile', 'kafkastream.log')
+    logfile = ks_config.get('logfile')
 
-    logging.basicConfig(
-        format='%(asctime)s %(name)s %(levelname)s %(message)s',
-        filename=logfile, level=logging.INFO)
+    logargs = dict(
+        level=logging.INFO,
+        format='%(asctime)s %(name)s %(levelname)s %(message)s'
+        )
+    if logfile:
+        logargs.update(filename=logfile)
+    logging.basicConfig(**logargs)
 
     tw_config = conf.get('twitter')
     if not tw_config:
