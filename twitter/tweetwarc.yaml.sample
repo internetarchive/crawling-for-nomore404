@@ -1,0 +1,7 @@
+kafka_topic: <TOPIC>
+kafka_bootstrap_servers: <HOST>:<PORT>
+kafka_client_id: <CID>
+kafka_group_id: <GID>
+
+warc_time_limit: 43200  # 12*3600, max open time for warc file
+warc_size_limit: 10000  # max number of tweets per warc file
