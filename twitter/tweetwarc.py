@@ -143,7 +143,6 @@ for msg in consumer:
         # remove .open suffix from complete WARC file
         os.rename(target_filename, target_filename[:-5])
         logging.info("Created file %s", target_filename[:-5])
-        break
         # create new file
         target_filename = warc_filename(args.directory)
         logging.info("Archiving to file " + target_filename)
