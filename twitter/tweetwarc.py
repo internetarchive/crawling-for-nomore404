@@ -124,7 +124,6 @@ f = open(target_filename, "ab")
 record = warcinfo_record(base_filename)
 record.write_to(f, gzip=True)
 
-tweet_cnt = 0
 start_time = time()
 time_limit = config.get('warc_time_limit')
 size_limit = config.get('warc_size_limit')
@@ -133,11 +132,10 @@ for msg in consumer:
     record = tweet_warc_record(base_filename, tweet)
     if record:
         record.write_to(f, gzip=True)
-        tweet_cnt += 1
 
-    if tweet_cnt > size_limit or (time() - start_time) > time_limit:
+    if os.stat(target_filename).st_size > size_limit or \
+            (time() - start_time) > time_limit:
         consumer.commit()
-        tweet_cnt = 0
         start_time = time()
         f.close()
         # remove .open suffix from complete WARC file
