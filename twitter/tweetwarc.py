@@ -51,7 +51,7 @@ def warcinfo_record(warc_filename):
             (WarcRecord.DATE, warc_date),
             (WarcRecord.FILENAME, warc_filename)
         ],
-        content=(b'warcinfo', metadata + "\r\n"),
+        content=(b'application/warc-fields', metadata + "\r\n"),
         version=b"WARC/1.0"
     )
 
