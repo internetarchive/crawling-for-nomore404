@@ -34,11 +34,12 @@ def warc_filename(directory):
     return "%s/tweets%s.warc.gz.open" % (
         directory, datetime.utcnow().strftime('%Y%m%d%H%M%S'))
 
+
 def warcinfo_record(warc_filename):
     """Return warcinfo WarcRecord.
     Required to write in the beginning of a WARC file.
     """
-    warc_date = warc_datetime_str(datetime.now())
+    warc_date = warc_datetime_str(datetime.utcnow())
     metadata = "\r\n".join((
         "format: WARC File Format 1.0",
         "conformsTo: http://bibnum.bnf.fr/WARC/WARC_ISO_28500_version1_latestdraft.pdf"
@@ -66,7 +67,7 @@ def tweet_warc_record(warc_filename, tweet_json):
             return
         url = "twitter:timelineapi/%s/%s/%s" % (
             tweet['user']['screen_name'],
-            datetime.fromtimestamp(float(tweet['timestamp_ms'])/1000.0)
+            datetime.utcfromtimestamp(float(tweet['timestamp_ms'])/1000.0)
                     .strftime("%Y%m%d%H%M%S"),
             tweet['id']
         )
@@ -74,27 +75,17 @@ def tweet_warc_record(warc_filename, tweet_json):
         logging.error(ex)
         return
 
-    current_date = datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT')
-    content_http_headers = "\r\n".join((
-        "HTTP/1.1 200 OK",
-        "Date: %s" % current_date,
-        "Last-Modified: %s" % current_date,
-        "Content-Length: %d" % len(tweet_json),
-        "Connection: close",
-        "Content-Type: application/json; charset=UTF-8"
-    ))
-    warc_date = warc_datetime_str(datetime.now())
+    warc_date = warc_datetime_str(datetime.utcnow())
     return WarcRecord(
         headers=[
-            (WarcRecord.TYPE, WarcRecord.CONVERSION),
+            (WarcRecord.TYPE, WarcRecord.RESOURCE),
             (WarcRecord.CONTENT_TYPE, b'application/json'),
             (WarcRecord.ID, warc_uuid(url+warc_date)),
             (WarcRecord.URL, url),
             (WarcRecord.DATE, warc_date),
             (WarcRecord.FILENAME, warc_filename)
         ],
-        content=(b'application/json',
-                 content_http_headers + "\r\n\r\n" + tweet_json),
+        content=(b'application/json', tweet_json),
         version=b"WARC/1.0"
     )
 
@@ -128,7 +119,7 @@ start_time = time()
 time_limit = config.get('warc_time_limit')
 size_limit = config.get('warc_size_limit')
 for msg in consumer:
-    tweet = msg.value.decode('utf-8').split("\n")[-2]
+    tweet = msg.value.decode('utf-8').split('\n')[-2]
     record = tweet_warc_record(base_filename, tweet)
     if record:
         record.write_to(f, gzip=True)
@@ -145,7 +136,7 @@ for msg in consumer:
         target_filename = warc_filename(args.directory)
         logging.info("Archiving to file " + target_filename)
         # drop .open suffix inside WARC
-        base_filename = os.path.basename(target_filename)
+        base_filename = os.path.basename(target_filename)[:-5]
         f = open(target_filename, "ab")
         record = warcinfo_record(base_filename)
         record.write_to(f, gzip=True)
