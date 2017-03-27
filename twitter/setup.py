@@ -15,11 +15,13 @@ setup(
         'ujson',
         'configobj',
         'oauth2-utf8==1.5.170',
-        'kafka-python'
+        'kafka-python',
+        'PyYAML'
         ],
     scripts=[
         'archivestream.py',
-        'kafkastream.py'
+        'kafkastream.py',
+        'tweetwarc.py'
         ],
     zip_safe=False
     )
