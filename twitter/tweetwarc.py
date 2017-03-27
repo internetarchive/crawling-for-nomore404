@@ -52,7 +52,7 @@ def warcinfo_record(warc_filename):
             (WarcRecord.DATE, warc_date),
             (WarcRecord.FILENAME, warc_filename)
         ],
-        content=(b'application/warc-fields', metadata),
+        content=(b'application/warc-fields', metadata + "\r\n"),
         version=b"WARC/1.0"
     )
 
@@ -85,7 +85,7 @@ def tweet_warc_record(warc_filename, tweet_json):
             (WarcRecord.DATE, warc_date),
             (WarcRecord.FILENAME, warc_filename)
         ],
-        content=(b'application/json', tweet_json),
+        content=(b'application/json', tweet_json + "\r\n"),
         version=b"WARC/1.0"
     )
 
