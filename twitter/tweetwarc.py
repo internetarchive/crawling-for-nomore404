@@ -12,6 +12,7 @@ import uuid
 import json
 import logging
 import os
+import socket
 from datetime import datetime
 from time import time
 from hanzo.warctools import WarcRecord
@@ -28,11 +29,13 @@ def warc_uuid(text):
 
 
 def warc_filename(directory):
-    """WARC filename example: /tmp/tweets20170307100027.warc.gz.open
+    """WARC filename example: /tmp/tweets-20170307100027-0001-fqdn.warc.gz.open
     After the file is closed, remove the .open suffix
+    The filaname format is compatible with github.com/internetarchive/draintasker
+    WARC_naming:   1 # {TLA}-{timestamp}-{serial}-{fqdn}.warc.gz
     """
-    return "%s/tweets%s.warc.gz.open" % (
-        directory, datetime.utcnow().strftime('%Y%m%d%H%M%S'))
+    return "%s/tweets-%s-0001-%s.warc.gz.open" % (
+        directory, datetime.utcnow().strftime('%Y%m%d%H%M%S'), socket.getfqdn())
 
 
 def warcinfo_record(warc_filename):
