@@ -68,10 +68,8 @@ def tweet_warc_record(warc_filename, tweet_json):
         # skip deleted tweet
         if 'user' not in tweet:
             return
-        url = "twitter:timelineapi/%s/%s/%s" % (
+        url = "https://twitter.com/%s/status/%s" % (
             tweet['user']['screen_name'],
-            datetime.utcfromtimestamp(float(tweet['timestamp_ms'])/1000.0)
-                    .strftime("%Y%m%d%H%M%S"),
             tweet['id']
         )
     except Exception as ex:
