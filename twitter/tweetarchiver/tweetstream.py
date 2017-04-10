@@ -64,6 +64,8 @@ class TweetStream(object):
             "twitter_stream_scheme", "https")
         self._twitter_stream_port = self._get_configuration_key(
             "twitter_stream_port", 443)
+        self._timeout = self._get_configuration_key(
+            "twitter_stream_timeout", 1800)
 
         parts = urlparse.urlparse(path)
         self._path = parts.path
@@ -149,6 +151,7 @@ class TweetStream(object):
             try:
                 tweet = self._readline()
                 if tweet == '':
+                    self._log.info('stream closed by the server')
                     self._response = None
                     continue
                 
@@ -166,10 +169,12 @@ class TweetStream(object):
         """ Creates the client and watches stream """
         if self._twitter_stream_scheme == 'https':
             http = httplib.HTTPSConnection(self._twitter_stream_host,
-                                           self._twitter_stream_port)
+                                           self._twitter_stream_port,
+                                           timeout=self._timeout)
         else:
             http = httplib.HTTPConnection(self._twitter_stream_host,
-                                          self._twitter_stream_port)
+                                          self._twitter_stream_port,
+                                          timeout=self._timeout)
         parameters = dict(self._parameters,
                           oauth_token=self._token.key,
                           oauth_consumer_key=self._consumer.key,
