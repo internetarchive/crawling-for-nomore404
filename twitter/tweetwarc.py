@@ -76,7 +76,7 @@ def tweet_warc_record(warc_filename, tweet_json):
         logging.error(ex)
         return
 
-    warc_date = warc_datetime_str(datetime.fromtimestamp(
+    warc_date = warc_datetime_str(datetime.utcfromtimestamp(
         float(tweet['timestamp_ms'])/1000.0))
     return WarcRecord(
         headers=[
