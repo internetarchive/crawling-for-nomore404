@@ -130,7 +130,8 @@ class HeadquarterSubmitter(object):
             raise IOError('{}: {}'.format(ep, f.code))
         res = f.read()
         f.close()
-        logging.info('submitted %d curls, response=%s', len(curls), res)
+        logging.info('submitted %d curls, response=%s',
+                     len(curls), res.rstrip())
 
     def makedata(self, j):
         post = j['object']
@@ -254,16 +255,15 @@ class FirehoseDownloader(object):
             opener = urllib2.build_opener(
                 )
             try:
-                #f = opener.open(endpoint)
                 f = opener.open(req)
                 logging.info('firehose stream opened')
                 self.stats['connection.success'] += 1
                 self.retry_interval = self.INITIAL_RETRY_INTERVAL
-            except (urllib2.URLError, httplib.BadStatusLine) as ex:
+            except (urllib2.URLError, httplib.BadStatusLine, socket.error) as ex:
                 self.stats['connection.failure'] += 1
-                logging.warn('failed to open firehose stream, '
+                logging.warn('failed to open firehose stream (%s), '
                              'holding off %d seconds',
-                             self.retry_interval)
+                             ex, self.retry_interval)
                 gevent.sleep(self.retry_interval)
                 self.retry_interval = min(
                     self.retry_interval * self.RETRY_BACKOFF_FACTOR,
