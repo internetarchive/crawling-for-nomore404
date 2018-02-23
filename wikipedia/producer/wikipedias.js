@@ -324,9 +324,46 @@ var wikidata = {
   wikidata: true
 };
 
+var wikinews = {
+    ja: true
+    zh: true
+    en: true
+    sr: true
+    pt: true
+    ko: true
+    ru: true
+    fr: true
+    ca: true
+    de: true
+    tr: true
+    es: true
+    it: true
+    ar: true
+    pl: true
+    no: true
+    uk: true
+    sv: true
+    bs: true
+    ro: true
+    eo: true
+    fa: true
+    sq: true
+    ta: true
+    el: true
+    bg: true
+    cs: true
+    fi: true
+    he: true
+    nl: true
+    sd: true
+    th: true
+    hu: true
+};
+
 module.exports = {
   millionPlusLanguages: millionPlusLanguages,
   oneHundredThousandPlusLanguages: oneHundredThousandPlusLanguages,
   reallyLongTailWikipedias: reallyLongTailWikipedias,
-  wikidata: wikidata
+  wikidata: wikidata,
+  wikinews: wikinews
 };

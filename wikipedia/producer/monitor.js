@@ -20,6 +20,9 @@ var MONITOR_REALLY_LONG_TAIL_WIKIPEDIAS = true;
 // whether to monitor the knowledge base Wikidata
 var MONITOR_WIKIDATA = true;
 
+// whether to monitor Wikinews
+var MONITOR_WIKINEWS = true;
+
 // required for Wikipedia API
 var USER_AGENT = 'Wikipedia External Links Monitor * IRC nick: Wikipedia-IA-external-links-monitor * Contact: vinay(a)archive.org';
 
@@ -60,6 +63,13 @@ if (MONITOR_WIKIDATA) {
   Object.keys(wikipedias.wikidata).forEach(function(language) {
     if (wikipedias.wikidata[language]) {
       IRC_CHANNELS.push('#' + language + PROJECT);
+    }
+  });
+}
+if (MONITOR_WIKINEWS) {
+  Object.keys(wikipedias.wikinews).forEach(function(language) {
+    if (wikipedias.wikinews[language]) {
+      IRC_CHANNELS.push('#' + language + 'wikinews');
     }
   });
 }
