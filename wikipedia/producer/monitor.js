@@ -69,7 +69,7 @@ if (MONITOR_WIKIDATA) {
 if (MONITOR_WIKINEWS) {
   Object.keys(wikipedias.wikinews).forEach(function(language) {
     if (wikipedias.wikinews[language]) {
-      IRC_CHANNELS.push('#' + language + 'wikinews');
+      IRC_CHANNELS.push('#' + language + '.wikinews');
     }
   });
 }
