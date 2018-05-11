@@ -134,8 +134,17 @@ class HeadquarterSubmitter(object):
                      len(curls), res.rstrip())
 
     def makedata(self, j):
-        post = j['object']
-        posturl = post['permalinkUrl']
+        verb = j.get('verb')
+        if verb != 'post':
+            # we know firehose also includes events with verb="delete",
+            # presumably for article deletion.
+            return None
+        post = j.get('object')
+        if post is None:
+            return None
+        posturl = post.get('permalinkUrl')
+        if posturl is None:
+            return None
         return dict(u=posturl)
 
     def __repr__(self):
@@ -162,7 +171,8 @@ class Pipeline(object):
     def put(self, item):
         # TODO: write to journal
         data = self.makedata(item)
-        self.queue.put((self.seq, data))
+        if data is not None:
+            self.queue.put((self.seq, data))
     def _get_batch(self):
         # wait until at least one is available
         items = [self.queue.get()]
@@ -284,14 +294,17 @@ class FirehoseDownloader(object):
                     continue
 
                 # TODO: make this one of pipelines?
-                published = j['published']
-                blog = j['target']
-                blogurl = blog.get('url')
-                post = j['object']
-                posturl = post.get('permalinkUrl')
+                verb = j.get('verb')
+                published = j.get('published')
+                blog = j.get('target')
+                blogurl = blog and blog.get('url')
+                post = j.get('object')
+                posturl = post and post.get('permalinkUrl')
 
-                print "{} {} {}".format(published,
-                                        printsafe(blogurl), printsafe(posturl))
+                print "{} {} {} {}".format(
+                    published, verb,
+                    printsafe(blogurl), printsafe(posturl)
+                )
 
                 for pl in self.pipelines:
                     pl.put(j)
