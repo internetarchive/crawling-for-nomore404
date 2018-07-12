@@ -190,16 +190,16 @@ try:
                     raise
 
             if warc and warc.should_rollover(size_limit, time_limit):
-                consumer.commit()
                 warc.close()
                 warc = None
+                consumer.commit()
 
         logging.info('pausing 5 seconds before continueing')
         time.sleep(5.0)
 finally:
     if warc is not None:
-        consumer.commit()
         warc.close()
         warc = None
+        consumer.commit()
 
     logging.info('exiting.')
