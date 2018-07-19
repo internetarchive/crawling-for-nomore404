@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import socket
+import signal
 from datetime import datetime
 from time import time
 from hanzo.warctools import WarcRecord
@@ -60,8 +61,8 @@ def tweet_warc_record(tweet_json):
             tweet['id']
         )
     except Exception as ex:
-        logging.error(ex)
-        return
+        logging.error('error in tweet_warc_record', exc_info=1)
+        return None
 
     warc_date = warc_datetime_str(datetime.utcfromtimestamp(
         float(tweet['timestamp_ms'])/1000.0))
@@ -84,6 +85,7 @@ class WarcFile(object):
         # filename recorded in warcinfo record - without .open, no path.
         self.base_filename = os.path.basename(self.target_filename)[:-5]
 
+        logging.debug('opening %s', self.target_filename)
         self.f = open(self.target_filename, "ab")
         record = warcinfo_record(self.base_filename)
         try:
@@ -123,6 +125,8 @@ class WarcFile(object):
 
     def close(self):
         self.f.close()
+        logging.debug('renaming %s to %s', self.target_filename,
+                      self.target_filename[:-5])
         os.rename(self.target_filename, self.target_filename[:-5])
 
 
@@ -133,26 +137,30 @@ parser.add_argument('-d', '--directory', default='.',
                     help='Directory to store tweets WARC.')
 parser.add_argument('--group', default=None,
                     help='override consumer group ID for testing')
-parser.add_argument('-v', action='store_const', dest='loglevel',
-                    default=logging.INFO, const=logging.DEBUG,
+parser.add_argument('-v', action='count', dest='loglevel', default=0,
                     help='generate DEBUG level logs')
 args = parser.parse_args()
 
 with open(args.config) as f:
     config = yaml.load(f)
 
+# logging level control: -v will log DEBUG for all but kafka.*
+# -vv will log DEBUG including kafka.*
 logging.basicConfig(
-    level=args.loglevel,
+    level=logging.DEBUG if args.loglevel > 0 else logging.INFO,
     format='[%(asctime)s] %(levelname)s %(name)s %(message)s',
     datefmt='%F %T'
 )
+if args.loglevel < 2:
+    logging.getLogger('kafka').setLevel(logging.INFO)
 
 consumer = KafkaConsumer(
     bootstrap_servers=config.get('kafka_bootstrap_servers'),
     client_id=config.get('kafka_client_id'),
     group_id=args.group or config.get('kafka_group_id'),
     # use small number not to exceed session_timeout.
-    max_poll_records=5
+    max_poll_records=5,
+    auto_offset_reset='earliest'
 )
 kafka_topic = config.get('kafka_topic')
 consumer.subscribe([kafka_topic])
@@ -160,9 +168,17 @@ consumer.subscribe([kafka_topic])
 time_limit = config.get('warc_time_limit')
 size_limit = config.get('warc_size_limit')
 
+interrupted = False
+def interrupt(sig, stack):
+    global interrupted
+    interrupted = True
+
+signal.signal(signal.SIGINT, interrupt)
+signal.signal(signal.SIGTERM, interrupt)
+
 warc = None
 try:
-    while True:
+    while not interrupted:
         partitions = consumer.partitions_for_topic(kafka_topic)
         logging.debug('partitions=%s', partitions)
         for msg in consumer:
@@ -171,6 +187,11 @@ try:
             tweet = msg.value.decode('utf-8').split('\n')[-2]
             record = tweet_warc_record(tweet)
             if record:
+                # used for tracking
+                record.headers.append((
+                    'Archive-Source',
+                    '{0.topic}/{0.partition}/{0.offset}'.format(msg)
+                ))
                 if warc is None:
                     try:
                         warc = WarcFile(args.directory)
@@ -184,22 +205,27 @@ try:
                     logging.error('failed to archive tweet (%s), rolling back',
                                   ex)
                     warc.rollback()
+                    # re-read the same msg again
+                    consumer.seek(-1, 1)
+
+                    logging.info('pausing 5 seconds before continueing')
+                    time.sleep(5.0)
                     break
-                except KeyboardInterrupt:
-                    warc.rollback()
-                    raise
+
+            # app termination is checked only after each tweet is archived
+            # to ensure all tweets are archived.
+            if interrupted:
+                break
 
             if warc and warc.should_rollover(size_limit, time_limit):
                 warc.close()
                 warc = None
                 consumer.commit()
-
-        logging.info('pausing 5 seconds before continueing')
-        time.sleep(5.0)
 finally:
     if warc is not None:
         warc.close()
         warc = None
-        consumer.commit()
+
+    consumer.close()
 
     logging.info('exiting.')
