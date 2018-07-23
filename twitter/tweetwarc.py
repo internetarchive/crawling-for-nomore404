@@ -160,7 +160,7 @@ consumer = KafkaConsumer(
     group_id=args.group or config.get('kafka_group_id'),
     # use small number not to exceed session_timeout.
     max_poll_records=5,
-    session_timeout_ms=60*1000,
+    session_timeout_ms=120*1000,
     auto_offset_reset='earliest',
     enable_auto_commit=False if args.seek else True
 )
