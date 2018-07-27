@@ -207,6 +207,7 @@ size_limit = config.get('warc_size_limit')
 
 interrupted = False
 def interrupt(sig, stack):
+    logging.info('received signal %s', sig)
     global interrupted
     interrupted = True
 
@@ -250,6 +251,8 @@ try:
                     logging.info('pausing 5 seconds before continueing')
                     time.sleep(5.0)
                     break
+            else:
+                logging.info('discarded %s/%s', msg.partition, msg.offset)
 
             # app termination is checked only after each tweet is archived
             # to ensure all tweets are archived.
