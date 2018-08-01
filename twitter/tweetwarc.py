@@ -11,6 +11,7 @@ import hashlib
 import uuid
 import json
 import logging
+import logging.config
 import os
 import socket
 import signal
@@ -145,14 +146,21 @@ with open(args.config) as f:
     config = yaml.load(f)
 
 # logging level control: -v will log DEBUG for all but kafka.*
-# -vv will log DEBUG including kafka.*
+# -vv will log DEBUG including kafka.coordinator.*
+# -vvv will log DEBUG including kafka.*
 logging.basicConfig(
     level=logging.DEBUG if args.loglevel > 0 else logging.INFO,
     format='[%(asctime)s] %(levelname)s %(name)s %(message)s',
     datefmt='%F %T'
 )
-if args.loglevel < 2:
+
+if 'logging' in config:
+    logging.config.dictConfig(config['logging'])
+
+if args.loglevel < 3:
     logging.getLogger('kafka').setLevel(logging.INFO)
+if args.loglevel == 2:
+    logging.getLogger('kafka.coordinator').setLevel(logging.INFO)
 
 consumer = KafkaConsumer(
     bootstrap_servers=config.get('kafka_bootstrap_servers'),
@@ -214,14 +222,35 @@ def interrupt(sig, stack):
 signal.signal(signal.SIGINT, interrupt)
 signal.signal(signal.SIGTERM, interrupt)
 
+# coordinator may die because of communication breakdown. it can result in
+# duplicate archive if offset has not been committed. we record offsets that
+# has been successfully processed 
+# each partition to avoid 
+# avoid 
+archived_offsets = {}
 warc = None
 try:
     while not interrupted:
         partitions = consumer.partitions_for_topic(kafka_topic)
         logging.debug('partitions=%s', partitions)
         for msg in consumer:
+            # KafkaConsumer may have re-joined consumer group because of
+            # communication issue. Such event is invisible to client code
+            # and very likely results in duplicate archive. So we compare
+            # offset in the message against the last archived, and skip
+            # duplicates. It's kinda sad client has to do this for itself.
+            if msg.partition in archived_offsets:
+                last_offset = archived_offsets[msg.partition]
+                if last_offset >= msg.offset:
+                    logging.info('detected duplicate msg %s:%s, seeking to %s',
+                                 msg.partition, msg.offset, last_offset + 1)
+                    consumer.seek(ToicPartition(msg.topic, msg.partition,
+                                                last_offset + 1))
+                    continue
+
             logging.debug('msg: partition=%s offset=%s', msg.partition,
                           msg.offset)
+
             tweet = msg.value.decode('utf-8').split('\n')[-2]
             record = tweet_warc_record(tweet)
             if record:
@@ -239,6 +268,7 @@ try:
 
                 try:
                     warc.write_record(record)
+                    archived_offsets[msg.partition] = msg.offset
                 except IOError as ex:
                     logging.error('failed to archive tweet (%s), rolling back',
                                   ex)
