@@ -295,7 +295,7 @@ try:
                 consumer.commit()
     logging.info('exiting by interrupt')
     exitcode = 0
-except Excpetion as ex:
+except Exception as ex:
     logging.error('exiting by error', exc_info=1)
     # 2 indicates serious error needing operator attention.
     # by default supervisor won't restart if program exist with code 2.
