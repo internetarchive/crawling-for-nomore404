@@ -244,7 +244,7 @@ try:
                 if last_offset >= msg.offset:
                     logging.info('detected duplicate msg %s:%s, seeking to %s',
                                  msg.partition, msg.offset, last_offset + 1)
-                    consumer.seek(ToicPartition(msg.topic, msg.partition,
+                    consumer.seek(TopicPartition(msg.topic, msg.partition,
                                                 last_offset + 1))
                     continue
 
