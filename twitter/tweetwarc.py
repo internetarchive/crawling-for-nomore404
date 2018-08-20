@@ -20,6 +20,7 @@ import time
 from hanzo.warctools import WarcRecord
 from hanzo.warctools.warc import warc_datetime_str
 from kafka import KafkaConsumer, TopicPartition
+from kafka.errors import CommitFailedError
 
 def warc_uuid(text):
     """Utility method for WARC header field urn:uuid"""
@@ -129,6 +130,26 @@ class WarcFile(object):
         os.rename(self.target_filename, self.target_filename[:-5])
 
 
+def start_consumer():
+    # access global vars: config, args
+    consumer = KafkaConsumer(
+        bootstrap_servers=config.get('kafka_bootstrap_servers'),
+        client_id=config.get('kafka_client_id'),
+        group_id=args.group or config.get('kafka_group_id'),
+        # use small number not to exceed session_timeout.
+        max_poll_records=5,
+        session_timeout_ms=120*1000,
+        auto_offset_reset='earliest',
+        enable_auto_commit=False if args.seek else True
+    )
+    kafka_topic = config.get('kafka_topic')
+    consumer.subscribe([kafka_topic])
+
+    partitions = consumer.partitions_for_topic(kafka_topic)
+    logging.debug('partitions=%s', partitions)
+
+    return consumer
+
 parser = argparse.ArgumentParser()
 parser.add_argument('-c', '--config', default='./tweetwarc.yaml',
                     help='YAML configuration file (default %(default)s)s')
@@ -162,19 +183,8 @@ if args.loglevel < 3:
 if args.loglevel == 2:
     logging.getLogger('kafka.coordinator').setLevel(logging.INFO)
 
-consumer = KafkaConsumer(
-    bootstrap_servers=config.get('kafka_bootstrap_servers'),
-    client_id=config.get('kafka_client_id'),
-    group_id=args.group or config.get('kafka_group_id'),
-    # use small number not to exceed session_timeout.
-    max_poll_records=5,
-    session_timeout_ms=120*1000,
-    auto_offset_reset='earliest',
-    enable_auto_commit=False if args.seek else True
-)
-kafka_topic = config.get('kafka_topic')
-consumer.subscribe([kafka_topic])
 
+consumer = start_consumer()
 if args.seek:
     # this is a rudimentary recovery aid for advancing consumer offset.
     # currently this app experiences unexpected revokation of assigned
@@ -183,7 +193,8 @@ if args.seek:
     target_partition, _, target_offset = args.seek.partition(':')
     if not target_offset:
         parser.error('--seek expects PARTITION:OFFSET')
-    target_partition = TopicPartition(kafka_topic, int(target_partition))
+    target_partition = TopicPartition(config.get('kafka_topic'),
+                                      int(target_partition))
     target_offset = int(target_offset)
 
     msgs = consumer.poll(max_records=1)
@@ -231,8 +242,8 @@ archived_offsets = {}
 warc = None
 try:
     while not interrupted:
-        partitions = consumer.partitions_for_topic(kafka_topic)
-        logging.debug('partitions=%s', partitions)
+        if consumer is None:
+            consumer = start_consumer()
         for msg in consumer:
             # KafkaConsumer may have re-joined consumer group because of
             # communication issue. Such event is invisible to client code
@@ -276,7 +287,12 @@ try:
                     # re-read the same msg again
                     consumer.seek(TopicPartition(msg.topic, msg.partition),
                                   msg.offset)
-                    consumer.commit()
+                    try:
+                        consumer.commit()
+                    except CommitFailedError as ex:
+                        logging.error('explicit commit failed while handling '
+                                      'IOError. restarting consumer')
+                        consumer = None
 
                     logging.info('pausing 5 seconds before continueing')
                     time.sleep(5.0)
@@ -292,8 +308,14 @@ try:
             if warc and warc.should_rollover(size_limit, time_limit):
                 warc.close()
                 warc = None
-                consumer.commit()
+                try:
+                    consumer.commit()
+                except CommitFailedError as ex:
+                    logging.error('explicit commit failed. restarting consumer')
+                    consumer = None
+                    break
     logging.info('exiting by interrupt')
+
     exitcode = 0
 except Exception as ex:
     logging.error('exiting by error', exc_info=1)
@@ -305,6 +327,9 @@ finally:
         warc.close()
         warc = None
 
-    consumer.close()
+    logging.info('archived_offsets is %s', archived_offsets)
+
+    if consumer is not None:
+        consumer.close()
 
 exit(exitcode)
