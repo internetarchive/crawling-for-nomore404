@@ -13,6 +13,8 @@ import json
 import logging
 import logging.config
 import os
+import re
+import traceback
 import socket
 import signal
 from datetime import datetime
@@ -161,6 +163,11 @@ parser.add_argument('-v', action='count', dest='loglevel', default=0,
                     help='generate DEBUG level logs')
 parser.add_argument('--seek', default=None,
                     help='update consumer offset and exit (for failure recovery)')
+parser.add_argument('--lock', default=None,
+                    help='path of lock file that is created at startup and '
+                    'removed at clean shutdown. If this file exists, tweetwarc '
+                    'refuses to start')
+
 args = parser.parse_args()
 
 with open(args.config) as f:
@@ -182,7 +189,6 @@ if args.loglevel < 3:
     logging.getLogger('kafka').setLevel(logging.INFO)
 if args.loglevel == 2:
     logging.getLogger('kafka.coordinator').setLevel(logging.INFO)
-
 
 consumer = start_consumer()
 if args.seek:
@@ -233,6 +239,18 @@ def interrupt(sig, stack):
 signal.signal(signal.SIGINT, interrupt)
 signal.signal(signal.SIGTERM, interrupt)
 
+if args.lock:
+    if os.path.isfile(args.lock):
+        logging.error(
+            "lock file %s exists. it means previous run was not shut "
+            "down cleanly. you may need to repair warc files and adjust "
+            "consumer offset before restarting. remove this file when ready",
+            args.lock)
+        # exit with code=2 so that supervisor won't retry launching.
+        exit(2)
+    with open(args.lock, "w") as f:
+        f.write("{}\n".format(os.getpid()))
+
 # coordinator may die because of communication breakdown. it can result in
 # duplicate archive if offset has not been committed. we record offsets that
 # has been successfully processed 
@@ -244,76 +262,83 @@ try:
     while not interrupted:
         if consumer is None:
             consumer = start_consumer()
-        for msg in consumer:
-            # KafkaConsumer may have re-joined consumer group because of
-            # communication issue. Such event is invisible to client code
-            # and very likely results in duplicate archive. So we compare
-            # offset in the message against the last archived, and skip
-            # duplicates. It's kinda sad client has to do this for itself.
-            if msg.partition in archived_offsets:
-                last_offset = archived_offsets[msg.partition]
-                if last_offset >= msg.offset:
-                    logging.info('detected duplicate msg %s:%s, seeking to %s',
-                                 msg.partition, msg.offset, last_offset + 1)
-                    consumer.seek(TopicPartition(msg.topic, msg.partition),
-                                  last_offset + 1)
-                    continue
+        try:
+            for msg in consumer:
+                # KafkaConsumer may have re-joined consumer group because of
+                # communication issue. Such event is invisible to client code
+                # and very likely results in duplicate archive. So we compare
+                # offset in the message against the last archived, and skip
+                # duplicates. It's kinda sad client has to do this for itself.
+                if msg.partition in archived_offsets:
+                    last_offset = archived_offsets[msg.partition]
+                    if last_offset >= msg.offset:
+                        logging.info('detected duplicate msg %s:%s, seeking to %s',
+                                     msg.partition, msg.offset, last_offset + 1)
+                        consumer.seek(TopicPartition(msg.topic, msg.partition),
+                                      last_offset + 1)
+                        continue
 
-            logging.debug('msg: partition=%s offset=%s', msg.partition,
-                          msg.offset)
+                logging.debug('msg: partition=%s offset=%s', msg.partition,
+                              msg.offset)
 
-            tweet = msg.value.decode('utf-8').split('\n')[-2]
-            record = tweet_warc_record(tweet)
-            if record:
-                # used for tracking
-                record.headers.append((
-                    'Archive-Source',
-                    '{0.topic}/{0.partition}/{0.offset}'.format(msg)
-                ))
-                if warc is None:
+                tweet = msg.value.decode('utf-8').split('\n')[-2]
+                record = tweet_warc_record(tweet)
+                if record:
+                    # used for tracking
+                    record.headers.append((
+                        'Archive-Source',
+                        '{0.topic}/{0.partition}/{0.offset}'.format(msg)
+                    ))
+                    if warc is None:
+                        try:
+                            warc = WarcFile(args.directory)
+                        except IOError as ex:
+                            logging.error('failed to create an WARC flle (%s)', ex)
+                            break
+
                     try:
-                        warc = WarcFile(args.directory)
+                        warc.write_record(record)
+                        archived_offsets[msg.partition] = msg.offset
                     except IOError as ex:
-                        logging.error('failed to create an WARC flle (%s)', ex)
-                        break
-
-                try:
-                    warc.write_record(record)
-                    archived_offsets[msg.partition] = msg.offset
-                except IOError as ex:
-                    logging.error('failed to archive tweet (%s), rolling back',
-                                  ex)
-                    warc.rollback()
-                    # re-read the same msg again
-                    consumer.seek(TopicPartition(msg.topic, msg.partition),
-                                  msg.offset)
-                    try:
+                        logging.error('failed to archive tweet (%s), rolling back',
+                                      ex)
+                        warc.rollback()
+                        # re-read the same msg again
+                        consumer.seek(TopicPartition(msg.topic, msg.partition),
+                                      msg.offset)
                         consumer.commit()
-                    except CommitFailedError as ex:
-                        logging.error('explicit commit failed while handling '
-                                      'IOError. restarting consumer')
-                        consumer = None
+                        logging.info('pausing 5 seconds before continueing')
+                        time.sleep(5.0)
+                        break
+                else:
+                    logging.info('discarded %s/%s', msg.partition, msg.offset)
 
-                    logging.info('pausing 5 seconds before continueing')
-                    time.sleep(5.0)
+                # app termination is checked only after each tweet is archived
+                # to ensure all tweets are archived.
+                if interrupted:
                     break
-            else:
-                logging.info('discarded %s/%s', msg.partition, msg.offset)
 
-            # app termination is checked only after each tweet is archived
-            # to ensure all tweets are archived.
-            if interrupted:
-                break
-
-            if warc and warc.should_rollover(size_limit, time_limit):
-                warc.close()
-                warc = None
-                try:
+                if warc and warc.should_rollover(size_limit, time_limit):
+                    warc.close()
+                    warc = None
                     consumer.commit()
-                except CommitFailedError as ex:
-                    logging.error('explicit commit failed. restarting consumer')
-                    consumer = None
-                    break
+
+        except CommitFailedError as ex:
+            logging.error('explicit commit failed. restarting consumer')
+            consumer = None
+            continue
+
+        except AssertionError as ex:
+            # kafka-python uses "assert" for checking assumptions that
+            # fail sometimes
+            if re.match(r'Broker id \S+ not in current metadata', ex.message):
+                traceback.print_exc()
+                logging.error('restarting consumer')
+                consumer = None
+                continue
+
+            raise
+            
     logging.info('exiting by interrupt')
 
     exitcode = 0
@@ -331,5 +356,11 @@ finally:
 
     if consumer is not None:
         consumer.close()
+
+    if args.lock:
+        try:
+            os.unlink(args.lock)
+        except OSError as ex:
+            logging.warn("failed to delete %s: %s", args.lock, ex)
 
 exit(exitcode)

@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="twitter-archiver",
-    version="0.3.4",
+    version="0.3.5",
     author="Kenji Nagahashi",
     author_email="kenji@archive.org",
     packages=find_packages(),
