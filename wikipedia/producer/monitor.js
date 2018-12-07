@@ -2,14 +2,33 @@ var irc = require('irc');
 var request = require('request');
 
 var express = require('express');
-var http = require('http');
 var app = express();
-var server = http.createServer(app);
 
 var $ = require('cheerio');
 var wikipedias = require('./wikipedias.js');
 
 var kafka = require('kafka-node');
+
+const prom = require('prom-client');
+const stat = {
+  ircMessages: new prom.Counter({
+    name: 'irc_messages',
+    help: 'IRC messages received'
+  }),
+  links: new prom.Counter({
+    name: 'links',
+    help: 'Links messages generated'
+  }),
+  restarted: new prom.Counter({
+    name: 'restarted',
+    help: 'Times watchdog restarted IRC client'
+  }),
+  produceFailures: new prom.Counter({
+    name: 'produce_failures',
+    help: 'number of producer send failures',
+    labelNames: ['topic']
+  })
+};
 
 // whether to monitor the 1,000,000+ articles Wikipedias
 var MONITOR_SHORT_TAIL_WIKIPEDIAS = true;
@@ -231,6 +250,9 @@ function processIRCMessage(from, to, message) {
   if (from !== 'rc-pmtpa') {
     return;
   }
+  var now = Date.now();
+  stat.ircMessages.inc(1, now);
+
   //logging all rc-pmta messages for research purposes
   producer.sendMessage(message);
 
@@ -240,7 +262,6 @@ function processIRCMessage(from, to, message) {
   }
 
   var { article, editor, delta, comment, language, jsonUrl } = components;
-  var now = Date.now();
 
   //set the last seen message TS
   lastSeenMessageTimestamp = now;
@@ -266,6 +287,7 @@ function processIRCMessage(from, to, message) {
 	  links: values.links
 	}
 	producer.sendLinksResults(resultsObj);
+	stat.links.inc(1, Date.now());
       }
     }
   );
@@ -355,6 +377,7 @@ class KafkaProducer {
     this.producer.send([payload], (err, data) => {
       if (err) {
 	console.log("kafka: send error to topic - wiki-irc: %s", err);
+	stats.produceFailures.labels('wiki-irc').inc(1, Date.now());
       }
     });
   }
@@ -366,10 +389,17 @@ class KafkaProducer {
     this.producer.send([payload], (err, data) => {
       if (err) {
 	console.log("kafka: send error to topic - wiki-links: %s", err);
+	stats.produceFailures.labels('wiki-links').inc(1, Date.now());
       }
     });
   }
 }
+
+// default collection interval 10 seconds.
+prom.collectDefaultMetrics();
+app.get('/metrics', (req, res) => {
+  res.send(prom.register.metrics());
+});
 
 const kafka_host = process.env.KAFKA_HOST;
 if (kafka_host) {
@@ -386,6 +416,7 @@ function resetClientIfDead() {
   if (lastSeenMessageTimestamp === null || (now - lastSeenMessageTimestamp) > MAX_WAIT_FOR_RESET) {
     // reset Wiki client
     newClient();
+    stats.restarted.inc(1, Date.now());
   }
 }
 setInterval(resetClientIfDead, 2 * MAX_WAIT_FOR_RESET);
@@ -393,4 +424,4 @@ setInterval(resetClientIfDead, 2 * MAX_WAIT_FOR_RESET);
 // start the server
 var port = process.env.PORT || 8080;
 console.log('Wikipedia IA External Links Monitor running on port ' + port);
-server.listen(port);
+app.listen(port);

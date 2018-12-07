@@ -23,5 +23,8 @@ services:
   wikipedia_monitor:
     build: .
     image: wikipedia-monitor
+    ports:
+      - "5006:5006"
     environment:
+      PORT: 5006
       KAFKA_HOST: kafka:9092

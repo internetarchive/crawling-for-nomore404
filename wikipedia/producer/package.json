@@ -1,6 +1,6 @@
 {
   "name": "wikipedia-monitor",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "wikipedia update stream monitor",
   "main": "monitor.js",
   "scripts": {
@@ -13,6 +13,7 @@
     "express": "^4.16.4",
     "irc": "^0.5.2",
     "kafka-node": "^3.0.1",
+    "prom-client": "^11.2.0",
     "request": "^2.88.0"
   }
 }
