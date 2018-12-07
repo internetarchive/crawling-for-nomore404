@@ -1,0 +1,18 @@
+{
+  "name": "wikipedia-monitor",
+  "version": "0.1.2",
+  "description": "wikipedia update stream monitor",
+  "main": "monitor.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Internet Archive",
+  "license": "AGPL-3.0-or-later",
+  "dependencies": {
+    "cheerio": "^1.0.0-rc.2",
+    "express": "^4.16.4",
+    "irc": "^0.5.2",
+    "kafka-node": "^3.0.1",
+    "request": "^2.88.0"
+  }
+}
