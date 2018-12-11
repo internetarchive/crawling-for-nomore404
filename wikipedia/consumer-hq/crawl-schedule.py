@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 #
+from __future__ import print_function, unicode_literals
 import sys
 import os
 import re
@@ -8,34 +9,21 @@ import itertools
 import logging
 import socket
 
-# kafka.client calls logging.getLogger() at module level!!
-logging.basicConfig(level=logging.DEBUG, filename='crawl-schedule.log',
-                    format='%(asctime)s %(levelname)s %(message)s)',
-                    datefmt='%FT%T')
-
 import ujson
 
 import threading
 
 import time
 import urllib2
+
+from servicelink.router import EventRouter
+
+import yaml
+
 from kafka.client import KafkaClient
 from kafka.consumer import SimpleConsumer
 from crawllib.headquarter import HeadquarterSubmitter
 from crawllib.graphite import StatSubmitter
-
-# TODO put these consts in a config file
-KAFKA_SERVER = ','.join(['crawl-db02.us.archive.org:9092'])
-ZKHOSTS = ','.join('crawl-zk{:d}.us.archive.org'.format(n)
-                   for n in range(1, 4))
-HQ_BASE_URL = 'http://crawl-hq06.us.archive.org/hq/jobs'
-HQ_JOB = 'wikipedia'
-
-CARBON_SERVER = 'crawl-monitor.us.archive.org:2003'
-STAT_BASE = 'crawl.wikipedia.links'
-
-KAFKA_CONSUMER_GROUP = "crawl"
-KAFKA_TOPIC = "wiki-links"
 
 def useful_link(url):
     if not re.match(r'https?://', url):
@@ -45,119 +33,175 @@ def useful_link(url):
     return True
 
 class CrawlScheduler(object):
-    def __init__(self):
-        self.kafka = KafkaClient(hosts=KAFKA_SERVER)
-        self.consumer = SimpleConsumer(
-            self.kafka, KAFKA_CONSUMER_GROUP, KAFKA_TOPIC,
-            auto_commit=True,
-            max_buffer_size=1024*1024)
+    def __init__(self, config):
+        self._log = logging.getLogger('{0.__name__}'.format(CrawlScheduler))
 
-        self.submitter = HeadquarterSubmitter(HQ_BASE_URL, HQ_JOB)
+        self.submitter = HeadquarterSubmitter(
+            config['output']['hq']['base_url'],
+            config['output']['hq']['job']
+        )
+        self.eventrouter = EventRouter(config['input'], self)
 
         self.stats = dict(fetched=0, scheduled=0, discarded=0)
+
+        self.curls = []
+
     def shutdown(self):
-        if self.kafka:
-            self.kafka.close()
+        pass
 
     def submit(self, curls):
-        logging.info('submitting %d curls to HQ', len(curls))
+        self._log.info('submitting %d curls to HQ', len(curls))
         for n in itertools.count():
             try:
                 self.submitter.put(curls)
                 if n > 0:
-                    logging.info('submission retry succeeded')
+                    self._log.info('submission retry succeeded')
                 break
             except Exception, ex:
-                logging.warn('submission failed (%s), retrying after 30s',
+                self._log.warn('submission failed (%s), retrying after 30s',
                              ex)
                 time.sleep(30.0)
-        self.consumer.commit()
+        #self.consumer.commit()
         self.stats['scheduled'] += len(curls)
 
-    def pull_and_submit(self):
-        empty_count = 0
-        while 1:
-            # iteration stops once queue becomes empty
-            curls = []
-            try:
-                for mao in self.consumer:
-                    message = mao.message
-                    #print '{} {}'.format(mao.offset, message)
-                    o = ujson.loads(message.value.rstrip())
-                    links = o.get('links')
-                    language = o.get('language').encode('utf-8')
-                    article = o.get('article').encode('utf-8')
+    def handle_message(self, msg):
+        try:
+            o = msg.get_json()
+        except ValueError as ex:
+            self._log.error('failed to parse message as JSON: %s', msg)
+            return
+        links = o.get('links')
+        try:
+            language = o['language'].encode('utf-8')
+            article = o['article'].encode('utf-8')
+            via = 'http://{}.wikipedia.org/wiki/{}'.format(
+                language, quote(article, safe=b''))
+        except (KeyError, AttributeError):
+            self._log.warning('cannot build via - language and/or article'
+                              ' information is missing: %r', o)
+            via = None
 
-                    if language and article:
-                        via = 'http://{}.wikipedia.org/wiki/{}'.format(
-                            language, quote(article, safe=''))
-                        for link in links:
-                            if useful_link(link):
-                                curl = dict(u=link)
-                                logging.debug('curl %s', curl)
-                                curls.append(curl)
-                                self.stats['fetched'] += 1
-                                if len(curls) >= 100:
-                                    self.submit(curls)
-                                    curls = []
-                            else:
-                                self.stats['discarded'] += 1
-                if len(curls) > 0:
-                    self.submit(curls)
-                    curls = []
-                    empty_count = 0
-                empty_count += 1
-                # report queue exhaustion only once.
-                if empty_count == 1:
-                    logging.info('queue exhausted')
-            except socket.error as ex:
-                # typically timeout
-                logging.warn('error reading from Kafka (%s)', ex)
-            time.sleep(1)
+        for link in links:
+            if useful_link(link):
+                curl = dict(u=link)
+                if via:
+                    curl['v'] = via
+                self._log.debug('curl %s', curl)
+
+                self.curls.append(curl)
+
+                self.stats['fetched'] += 1
+
+                if len(self.curls) >= 100:
+                    self.submit(self.curls)
+                    self.curls = []
+            else:
+                self.stats['discarded'] += 1
+
+    def pull_and_submit(self):
+        self.eventrouter.run()
+
+config = {
+    'input': {
+        'kafka': {
+            'topic': 'wiki-links',
+            'params': {
+                'bootstrap_servers:': 'crawl-db07.us.archive.org:9092',
+                'client_id': 'wikipedia-hq',
+                'group_id': 'crawl'
+            }
+        }
+    },
+    'output': {
+        'hq': {
+            'base_url': 'http://crawl-hq06.us.archive.org/hq/jobs',
+            'job': 'wikipedia'
+        }
+    },
+    'stat': {
+        'carbon_server': 'crawl-monitor.us.archive.org:2003',
+        'base': 'crawl.wikipedia.links'
+    },
+}
 
 import argparse
 
+def string_list(v):
+    return v.split(',')
+
 parser = argparse.ArgumentParser()
 parser.add_argument('-c', '--config')
-config_actions = [
-    parser.add_argument('--kafka-server'),
-    parser.add_argument('--zkhosts'),
-    parser.add_argument('--hq-base-url'),
-    parser.add_argument('--hq-job'),
-    parser.add_argument('--carbon-server'),
-    parser.add_argument('--stat-base'),
-    parser.add_argument('--kafka-consumer-group'),
-    parser.add_argument('--kafka-topic')
-    ]
+parser.add_argument('--kafka-server', type=string_list)
+parser.add_argument('--hq-base-url')
+parser.add_argument('--hq-job')
+parser.add_argument('--carbon-server')
+parser.add_argument('--stat-base')
+parser.add_argument('--kafka-consumer-group')
+parser.add_argument('--kafka-topic')
+
+# temporary migration measure
+parser.add_argument('--kafka-offset', type=int)
+
+option_config_map = {
+    'kafka_server': 'input.kafka.params.bootstrap_servers',
+    'kafka_consumer_group': 'input.kafka.params.group_id',
+    'kafka_topic': 'input.kafka.topic',
+    'hq_base_url': 'output.hq.base_url',
+    'hq_job': 'otput.hq.job',
+    'carbon_server': 'stat.carbon_server',
+    'stat_base': 'stat.base'
+}
 
 args = parser.parse_args()
 
+# kafka.client calls logging.getLogger() at module level!!
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s %(levelname)s %(name)s %(message)s)',
+                    datefmt='%FT%T')
+
 if args.config:
-    scope = dict()
-    execfile(args.config, scope)
-    for k, v in scope.items():
-        if k and 'A' <= k[0] <= 'Z':
-            globals()[k] = v
-for a in config_actions:
-    value = getattr(args, a.dest)
-    # if option is not specified in command line, use default values
-    # provided either by config file, or code above.
+    logging.info('loading config %s', args.config)
+    config.update(yaml.load(open(args.config, "r")))
+    assert isinstance(config, dict)
+
+def set_config(d, name, value):
+    citems = name.split('.')
+    for item in citems[:-1]:
+        nd = d.get(item)
+        if not isinstance(nd, dict):
+            nd = d[item] = dict()
+        d = nd
+    d[citems[-1]]= value
+
+# command line options overrides specific values in config
+for o, c in option_config_map.items():
+    value = getattr(args, o)
     if value is not None:
-        globals()[a.dest.upper()] = value
+        set_config(config, c, value)
 
-scheduler = CrawlScheduler()
-statsubmitter = threading.Thread(
-    target=StatSubmitter(CARBON_SERVER, STAT_BASE, scheduler.stats).run
-    )
-statsubmitter.setDaemon(True)
-statsubmitter.start()
+if args.kafka_offset is not None:
+    topic = config['input']['kafka']['topic']
+    set_config(config, 'input.kafka.consumer_offset.{}:0'.format(topic),
+               args.kafka_offset)
 
+scheduler = CrawlScheduler(config)
+
+stat_config = config['stat']
+StatSubmitter(
+    stat_config['carbon_server'],
+    stat_config['base'],
+    scheduler.stats
+).start()
+
+logging.info('starting')
 try:
     scheduler.pull_and_submit()
+except KeyboardInterrupt:
+    logging.info('scheduler exiting INT signal')
 except Exception as ex:
     logging.warn('scheduler exitting on error', exc_info=1)
-    print >>sys.stderr, "threads:"
+    print("threads:", file=sys.stderr)
     for th in threading.enumerate():
-        print "  {}".format(th)
+        print("  {}".format(th), file=sys.stderr)
 finally:
     scheduler.shutdown()

@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 setup(
-    name="consumer-hq",
+    name="wikipedia-hq",
     version="0.1.0",
     description="Read Wikipedia links feed and schedule crawl",
     author="Kenji Nagahashi",
@@ -11,11 +11,13 @@ setup(
         ],
     install_requires=[
         "ujson",
+        "gwb-servicelink",
         # pegged to specific version so as not to be affected by
         # potential interface change.
-        "kafka-python==0.9.4",
+        "kafka-python",
         # private - from local index
-        "crawllib"
-        ]
+        "crawllib>=0.1.4.1",
+        "PyYAML"
+    ]
 )
 
