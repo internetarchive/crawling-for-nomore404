@@ -1,4 +1,0 @@
-ujson==1.33
-kafka-python==0.9.4
-# private - from local repository
-crawllib
