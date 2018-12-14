@@ -1,10 +1,9 @@
 var irc = require('irc');
-var request = require('request');
 
 var express = require('express');
 var app = express();
 
-var $ = require('cheerio');
+const {processIRCMessage} = require('./processor');
 var wikipedias = require('./wikipedias.js');
 
 var kafka = require('kafka-node');
@@ -44,13 +43,6 @@ var MONITOR_WIKIDATA = true;
 
 // whether to monitor Wikinews
 var MONITOR_WIKINEWS = true;
-
-// required for Wikipedia API
-var USER_AGENT = 'Wikipedia External Links Monitor * IRC nick: Wikipedia-IA-external-links-monitor * Contact: vinay(a)archive.org';
-
-// Wikipedia edit bots can account for many false positives, so usually we want
-// to discard them
-var DISCARD_WIKIPEDIA_BOTS = true;
 
 // IRC details for the recent changes live updates
 var IRC_SERVER = 'irc.wikimedia.org';
@@ -157,193 +149,16 @@ function newClient() {
   });
 
   // fires whenever a new IRC message arrives on any of the IRC rooms
-  client.addListener('message', processIRCMessage);
-}
-
-function parseMessage(message, to) {
-  // get the editor's username or IP address
-  // the IRC log format is as follows (with color codes removed):
-  // rc-pmtpa: [[Juniata River]]  http://en.wikipedia.org/w/index.php?diff=516269072&oldid=514659029 * Johanna-Hypatia * (+67) Category:Place names of Native American origin in Pennsylvania
-  
-  var [article_flags_url, editor, delta_comment] = message.split(' * ');
-  // named match group could be nice, but it is a new feature in node 10.
-  var match = article_flags_url.match(/\[\[(.+?)\]\] (\S*) (.+)$/);
-  if (!match) {
-    return false;
-  }
-  var [, article, flags, jsonUrl] = match;
-  // discard non-article namespaces, as listed here:
-  // http://www.mediawiki.org/wiki/Help:Namespaces
-  // this means only listening to messages without a ':' essentially
-  if (article.indexOf(':') !== -1) {
-    return false;
-  }
-  // discard edits made by bots.
-  // bots are identified by a B flag, as documented here
-  // http://www.mediawiki.org/wiki/Help:Tracking_changes
-  // (the 'b' is actually uppercase in IRC)
-  //
-  // bots must identify themselves by prefixing or suffixing their
-  // username with "bot".
-  // http://en.wikipedia.org/wiki/Wikipedia:Bot_policy#Bot_accounts
-  if (DISCARD_WIKIPEDIA_BOTS) {
-    if ((/B/.test(flags)) ||
-        (/\bbot/i.test(editor)) ||
-        (/bot\b/i.test(editor))) {
-      return;
+  client.addListener('message', (from, to, message) => {
+    // "rc-pmtpa" is the name of the Wikipedia IRC bot that announces live
+    // changes.
+    if (from == 'rc-pmtpa') {
+      lastSeenMessageTimestamp = Date.now();
+      // logging all rc-tma mesages for  research purposes
+      producer.sendMessage(message);
+      processIRCMessage(to, message, producer);
     }
-  }
-  // normalize article titles to follow the Wikipedia URLs
-  article = article.replace(/\s/g, '_');
-  // the language format follows the IRC room format: "#language.project"
-  var language = to.substring(1, to.indexOf('.'));
-  editor = language + ':' + editor;
-  // diff URL
-  if (!jsonUrl) {
-    console.warn('no DiffUrl field in the second component: %s', message)
-    return;
-  }
-  if ((jsonUrl.indexOf('diff') !== -1) &&
-      (jsonUrl.indexOf('oldid') !== -1)) {
-    var toRev = jsonUrl.replace(/.*\?diff=(\d+).*/, '$1');
-    var fromRev = jsonUrl.replace(/.*&oldid=(\d+).*/, '$1');
-    if (language === 'wikidata') {
-      jsonUrl = 'http://wikidata.org/w/api.php?action=compare&torev=' +
-        toRev + '&fromrev=' + fromRev + '&format=json';
-    } else {
-      jsonUrl = 'http://' + language +
-        '.wikipedia.org/w/api.php?action=compare&torev=' + toRev +
-        '&fromrev=' + fromRev + '&format=json';
-    }
-  } else {
-    if (language === 'wikidata') {
-      jsonUrl = 'http://wikidata.org/w/api.php?action=parse&page=' +
-	encodeURIComponent(article) +
-        '&prop=externallinks&format=json';
-    } else {
-      jsonUrl = 'http://' + language +
-        '.wikipedia.org/w/api.php?action=parse&page=' +
-	encodeURIComponent(article) +
-        '&prop=externallinks&format=json';
-    }
-  }
-
-  match = delta_comment.match(/\(([-+]\d+)\)\s(.*)$/);
-  if (match) {
-    var [, delta, comment] = match;
-  } else {
-    var delta = '', comment = '';
-  }
-  return {
-    article,
-    editor,
-    language,
-    delta,
-    comment,
-    jsonUrl
-  }
-}
-
-
-function processIRCMessage(from, to, message) {
-  // this is the Wikipedia IRC bot that announces live changes
-  if (from !== 'rc-pmtpa') {
-    return;
-  }
-  var now = Date.now();
-  stat.ircMessages.inc(1, now);
-
-  //logging all rc-pmta messages for research purposes
-  producer.sendMessage(message);
-
-  var components = parseMessage(message, to);
-  if (!components) {
-    return;
-  }
-
-  var { article, editor, delta, comment, language, jsonUrl } = components;
-
-  //set the last seen message TS
-  lastSeenMessageTimestamp = now;
-
-  request.get(
-    {
-      uri: jsonUrl,
-      headers: {'User-Agent': USER_AGENT}
-    },
-    function(error, response, body) {
-      var values;
-      var type = "compare";
-      if (jsonUrl.indexOf('action=compare') !== -1) {
-        values = getLinksFromCompareUrl(error, body);
-      }
-      else {
-	type = "parse";
-        values = getLinksFromParseUrl(error, body);
-      }
-      if (values) {
-	var resultsObj = {
-	  article, editor, delta, comment, language, now,
-	  links: values.links
-	}
-	producer.sendLinksResults(resultsObj);
-	stat.links.inc(1, Date.now());
-      }
-    }
-  );
-}
-
-function getLinksFromParseUrl(error, body) {
-  if (!error) {
-    var json;
-    try {
-      json = JSON.parse(body);
-    } catch(e) {
-      json = false;
-    }
-    if(json && json.parse && json.parse && json.parse['externallinks']) {
-      var links = json.parse['externallinks'];
-      if(links.length > 0) {
-	return {
-	  links: links
-	};
-      }
-    }
-  }
-}
-
-function getLinksFromCompareUrl(error, body) {
-  if (!error) {
-    var json;
-    try {
-      json = JSON.parse(body);
-    } catch(e) {
-      json = false;
-    }
-    if ((json && json.compare && json.compare['*'])) {
-      var parsedHtml = $.load(json.compare['*']);
-      var addedLines = parsedHtml('.diff-addedline');
-      var addedText = "";
-      addedLines.each(function(i, elem) {
-        var text = $(this).text().trim();
-	addedText = addedText.concat(text);
-      });
-
-      //find all occurrences of links
-      //reference: http://stackoverflow.com/questions/1986121/match-all-urls-in-string-and-return-in-array-in-javascript
-      geturl = new RegExp(
-        //"(^|[ \t\r\n])((ftp|http|https):(([A-Za-z0-9$_.+!*(),;/?:@&~=-])|%[A-Fa-f0-9]{2}){2,}(#([a-zA-Z0-9][a-zA-Z0-9$_.+!*(),;/?:@&~=%-]*))?([A-Za-z0-9$_+!*();/?:~-]))"
-        "((ftp|http|https):(([A-Za-z0-9$_.+!*(),;/?:@&~=-])|%[A-Fa-f0-9]{2}){2,}(#([a-zA-Z0-9][a-zA-Z0-9$_.+!*(),;/?:@&~=%-]*))?([A-Za-z0-9$_+!*();/?:~-]))"
-        ,"g"
-      );
-      var links = addedText.match(geturl);
-      if (links && links.length > 0) {
-        return {
-          links: links
-        };
-      }
-    }
-  }
+  });
 }
 
 // for testing
@@ -374,10 +189,11 @@ class KafkaProducer {
       topic: "wiki-irc",
       messages: message,
     };
+    stat.ircMessages.inc(1, Date.now());
     this.producer.send([payload], (err, data) => {
       if (err) {
-	console.log("kafka: send error to topic - wiki-irc: %s", err);
-	stats.produceFailures.labels('wiki-irc').inc(1, Date.now());
+        console.log("kafka: send error to topic - wiki-irc: %s", err);
+        stats.produceFailures.labels('wiki-irc').inc(1, Date.now());
       }
     });
   }
@@ -386,10 +202,11 @@ class KafkaProducer {
       topic: "wiki-links",
       messages: JSON.stringify(obj)
     };
+    stat.links.inc(1, Date.now());
     this.producer.send([payload], (err, data) => {
       if (err) {
-	console.log("kafka: send error to topic - wiki-links: %s", err);
-	stats.produceFailures.labels('wiki-links').inc(1, Date.now());
+        console.log("kafka: send error to topic - wiki-links: %s", err);
+        stats.produceFailures.labels('wiki-links').inc(1, Date.now());
       }
     });
   }
