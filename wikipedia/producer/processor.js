@@ -142,11 +142,12 @@ function getLinksFromCompareUrl(body) {
   }
 }
 
-function processIRCMessage(to, message, producer) {
+function processIRCMessage(to, message, producer, callback) {
   const now = Date.now();
 
   let components = parseMessage(message, to);
   if (!components) {
+    if (callback) callback();
     return;
   }
 
@@ -157,9 +158,10 @@ function processIRCMessage(to, message, producer) {
       uri: jsonUrl,
       headers: {'User-Agent': USER_AGENT}
     },
-    function(error, response, body) {
+    (error, response, body) => {
       if (error) {
         console.warn('%s: %s', jsonUrl, error);
+	if (callback) callback();
         return;
       }
       var values;
@@ -177,6 +179,7 @@ function processIRCMessage(to, message, producer) {
         }
         producer.sendLinksResults(resultsObj);
       }
+      if (callback) callback();
     }
   );
 }

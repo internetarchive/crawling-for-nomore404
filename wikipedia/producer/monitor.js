@@ -6,7 +6,7 @@ var app = express();
 const {processIRCMessage} = require('./processor');
 var wikipedias = require('./wikipedias.js');
 
-var kafka = require('kafka-node');
+const {ConsoleProducer, KafkaProducer} = require('./producer');
 
 const prom = require('prom-client');
 const stat = {
@@ -161,56 +161,6 @@ function newClient() {
   });
 }
 
-// for testing
-class ConsoleProducer {
-  sendMessage(message) {
-    console.log('Wiki-IRC-Message:%s', message);
-  }
-  sendLinksResults(obj) {
-    console.log('Wiki-Links-Results:%s', JSON.stringify(obj));
-  }
-}
-class KafkaProducer {
-  constructor(kafkaHost) {
-    this.client = new kafka.KafkaClient({
-      kafkaHost
-    });
-    this.producer = new kafka.Producer(this.client)
-    this.producer.on('error', err => {
-      console.log("kafka: some general error occurred: %s",err);
-    });
-    this.producer.on("brokerReconnectError", err => {
-      console.log("kafka: could not reconnect: %s", err);
-      console.log("kafka: will retry on next send()");
-    });
-  }
-  sendMessage(message) {
-    const payload = {
-      topic: "wiki-irc",
-      messages: message,
-    };
-    stat.ircMessages.inc(1, Date.now());
-    this.producer.send([payload], (err, data) => {
-      if (err) {
-        console.log("kafka: send error to topic - wiki-irc: %s", err);
-        stats.produceFailures.labels('wiki-irc').inc(1, Date.now());
-      }
-    });
-  }
-  sendLinksResults(obj) {
-    const payload = {
-      topic: "wiki-links",
-      messages: JSON.stringify(obj)
-    };
-    stat.links.inc(1, Date.now());
-    this.producer.send([payload], (err, data) => {
-      if (err) {
-        console.log("kafka: send error to topic - wiki-links: %s", err);
-        stats.produceFailures.labels('wiki-links').inc(1, Date.now());
-      }
-    });
-  }
-}
 
 // default collection interval 10 seconds.
 prom.collectDefaultMetrics();
@@ -220,7 +170,7 @@ app.get('/metrics', (req, res) => {
 
 const kafka_host = process.env.KAFKA_HOST;
 if (kafka_host) {
-  producer = new KafkaProducer(kafka_host);
+  producer = new KafkaProducer(kafka_host, stat);
 } else {
   producer = new ConsoleProducer();
 }
