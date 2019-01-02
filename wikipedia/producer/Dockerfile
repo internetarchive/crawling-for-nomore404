@@ -17,4 +17,4 @@ RUN apt-get update && apt-get install -y libicu52
 COPY --from=build $DEST/ $DEST/
 WORKDIR $DEST
 
-CMD node monitor.js
+CMD ["node", "monitor.js"]
