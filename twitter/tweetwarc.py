@@ -154,7 +154,7 @@ def start_consumer():
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-c', '--config', default='./tweetwarc.yaml',
-                    help='YAML configuration file (default %(default)s)s')
+                    help='YAML configuration file (default %(default)s)')
 parser.add_argument('-d', '--directory', default='.',
                     help='Directory to store tweets WARC.')
 parser.add_argument('--group', default=None,
@@ -196,35 +196,52 @@ if args.seek:
     # currently this app experiences unexpected revokation of assigned
     # partition and subsequent failure to commit consumer offsets. When
     # this happens, stop the app and advance offset with this.
-    target_partition, _, target_offset = args.seek.partition(':')
-    if not target_offset:
-        parser.error('--seek expects PARTITION:OFFSET')
-    target_partition = TopicPartition(config.get('kafka_topic'),
-                                      int(target_partition))
-    target_offset = int(target_offset)
+    seeks = []
+    parts = args.seek.split(',')
+    for part in parts:
+        target_partition, _, target_offset = part.strip().partition(':')
+        if not target_offset:
+            parser.error('--seek expects PARTITION:OFFSET[,PARTITION:OFFSET...]')
+        partition = TopicPartition(config.get('kafka_topic'),
+                                          int(target_partition))
+        offset = int(target_offset)
+        seeks.append((partition, offset))
 
     msgs = consumer.poll(max_records=1)
     logging.info('msgs=%s', msgs)
     while True:
         a = consumer.assignment()
         if a:
-            assert target_partition in a
+            missing_partitions = [tp for tp, o in seeks if tp not in a]
+            if missing_partitions:
+                logging.error('partitions %s are missing in the assignment. '
+                              'it may succeed if you try again,',
+                              missing_partitions)
+                consumer.close()
+                exit(1)
+            if not all(tp in a for tp, o in seeks):
+                parser.error('assignment {} is insufficient'.format(a))
             break
         logging.info('assignment=%s', a)
         time.sleep(1.0)
-    offset = consumer.committed(target_partition)
-    # this must be identical to the committed offset.
-    position = consumer.position(target_partition)
 
-    logging.info('current committed offset=%s position=%s', offset, position)
-    if target_offset == position:
-        logging.info('no need to change position')
-        exit(0)
+    for target_partition, target_offset in seeks:
+        offset = consumer.committed(target_partition)
+        # this must be identical to the committed offset.
+        position = consumer.position(target_partition)
 
-    logging.info('seeking to %s', target_offset)
-    consumer.seek(target_partition, target_offset)
-    logging.info('new position=%s', consumer.position(target_partition))
+        logging.info('partition %s: current committed offset=%s position=%s',
+                     target_partition.partition, offset, position)
+        if target_offset == position:
+            logging.info('no need to change position')
+            continue
+
+        logging.info('seeking to %s', target_offset)
+        consumer.seek(target_partition, target_offset)
+        logging.info('new position=%s', consumer.position(target_partition))
+
     consumer.commit()
+    consumer.close()
     exit(0)
 
 time_limit = config.get('warc_time_limit')
@@ -253,9 +270,9 @@ if args.lock:
 
 # coordinator may die because of communication breakdown. it can result in
 # duplicate archive if offset has not been committed. we record offsets that
-# has been successfully processed 
-# each partition to avoid 
-# avoid 
+# has been successfully processed
+# each partition to avoid
+# avoid
 archived_offsets = {}
 warc = None
 try:
@@ -338,7 +355,7 @@ try:
                 continue
 
             raise
-            
+
     logging.info('exiting by interrupt')
 
     exitcode = 0
