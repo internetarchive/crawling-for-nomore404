@@ -4,7 +4,8 @@ Create WARC files from tweets stored in Apache Kafka in user defined dir.
 Read configuration from YAML file. Run like this:
     tweetwarc.py -c tweetwarc.yaml -d /dir-to-save-warc
 """
-from __future__ import unicode_literals
+from __future__ import unicode_literals, print_function
+import sys
 import argparse
 import yaml
 import hashlib
@@ -13,10 +14,15 @@ import json
 import logging
 import logging.config
 import os
+try:
+    from os import scandir
+except ImportError:
+    from scandir import scandir
 import re
 import traceback
 import socket
 import signal
+import gzip
 from datetime import datetime
 import time
 from hanzo.warctools import WarcRecord
@@ -152,6 +158,48 @@ def start_consumer():
 
     return consumer
 
+def recover_offsets(args):
+    warcdir = args.directory
+    partition_offset = {}
+    last_warc = ''
+    for ent in scandir(warcdir):
+        if not ent.is_file(): continue
+        if ent.name.endswith('.warc.gz.open'):
+            print('repair this file first: %s' % (ent.name,), file=sys.stderr)
+            return 1
+        if ent.name.endswith('.warc.gz'):
+            if ent.name > last_warc:
+                last_warc = ent.name
+    if last_warc is '':
+        print('no warc.gz files found in %s' % (warcdir,), file=sys.stderr)
+        return 1
+    logging.info('scanning %s for partition offsets', last_warc)
+    with gzip.open(os.path.join(warcdir, last_warc), 'rb') as f:
+        clen = None
+        for l in f:
+            if l == b'\r\n':
+                if clen is not None:
+                    f.read(clen)
+                    clen = None
+                continue
+            l = l.rstrip()
+            m = re.match(br'(?i)content-length:\s*(\d+)', l)
+            if m:
+                clen = int(m.group(1))
+                continue
+            m = re.match(br'(?i)archive-source:\s*'
+                         br'(?P<topic>\w+)/(?P<partition>\d+)/(?P<offset>\d+)',
+                         l)
+            if m:
+                o = int(m.group('offset'))
+                p = m.group('partition')
+                partition_offset[p] = max(o, partition_offset.get(p, 0))
+                continue
+
+    print('--seek', ','.join("%s:%d" % (p, partition_offset[p] + 1)
+                             for p in sorted(partition_offset.keys())))
+    return 0
+
 parser = argparse.ArgumentParser()
 parser.add_argument('-c', '--config', default='./tweetwarc.yaml',
                     help='YAML configuration file (default %(default)s)')
@@ -161,6 +209,7 @@ parser.add_argument('--group', default=None,
                     help='override consumer group ID for testing')
 parser.add_argument('-v', action='count', dest='loglevel', default=0,
                     help='generate DEBUG level logs')
+parser.add_argument('--recover-offsets', action='store_true', default=False)
 parser.add_argument('--seek', default=None,
                     help='update consumer offset and exit (for failure recovery)')
 parser.add_argument('--lock', default=None,
@@ -171,7 +220,7 @@ parser.add_argument('--lock', default=None,
 args = parser.parse_args()
 
 with open(args.config) as f:
-    config = yaml.load(f)
+    config = yaml.safe_load(f)
 
 # logging level control: -v will log DEBUG for all but kafka.*
 # -vv will log DEBUG including kafka.coordinator.*
@@ -189,6 +238,9 @@ if args.loglevel < 3:
     logging.getLogger('kafka').setLevel(logging.INFO)
 if args.loglevel == 2:
     logging.getLogger('kafka.coordinator').setLevel(logging.INFO)
+
+if args.recover_offsets:
+    exit(recover_offsets(args))
 
 consumer = start_consumer()
 if args.seek:

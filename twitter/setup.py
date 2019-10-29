@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="twitter-archiver",
-    version="0.3.6",
+    version="0.3.7",
     author="Kenji Nagahashi",
     author_email="kenji@archive.org",
     packages=find_packages(),
@@ -16,9 +16,10 @@ setup(
         'configobj',
         'oauth2-utf8==1.5.170',
         'kafka-python',
-        'PyYAML',
+        'PyYAML>=5',
         'warctools',
-        ],
+        'scandir;python_version<"3"'
+    ],
     scripts=[
         'archivestream.py',
         'kafkastream.py',
