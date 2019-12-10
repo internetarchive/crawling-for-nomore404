@@ -140,8 +140,8 @@ class TweetStream(object):
         while 1:
             if self._response is None:
                 if self._connection_tries > 0:
-                    backoff = min(self._connection_tries * BACKOFF_INCREMENT,
-                                  BACKOFF_MAX)
+                    backoff = min(self._connection_tries * self.BACKOFF_INCREMENT,
+                                  self.BACKOFF_MAX)
                     time.sleep(backoff)
                 self._connection_tries += 1
                 self._open_twitter_stream()
