@@ -8,7 +8,6 @@ gevent.monkey.patch_all()
 
 import os
 import sys
-import re
 from optparse import OptionParser
 
 import gevent
@@ -16,26 +15,22 @@ from gevent import socket
 from gevent.event import Event
 from gevent.queue import Queue, Empty
 
-import httplib
-import urllib2
+from six.moves.http_client import BadStatusLine
+import six.moves.urllib.request as urllib2
+from six.moves.urllib.error import URLError
 import json
-import base64
 import logging
 import time
 from datetime import datetime
 from gzip import GzipFile
-from ConfigParser import ConfigParser
+from six.moves.configparser import ConfigParser
+
+from wpfeed.firehose import FirehoseDownloader
 
 """
 end point for WP-hosted blogs: 'http://xmpp.wordpress.com:8008/posts.json'
 end point for self-hosted blogs: 'http://xmpp.wordpress.com:8008/posts.org.json'
 """
-
-def printsafe(s):
-    if s is None: return None
-    if isinstance(s, unicode):
-        s = s.encode('utf-8')
-    return repr(s)[1:-1]
 
 # TODO: these two classes were copied from Twitter archiver.
 # move to reusable library (widecrawl?)
@@ -53,16 +48,16 @@ class ArchiveFile(object):
             self.f = None
             try:
                 os.rename(self.fn + '.open', self.fn)
-            except Exception, ex:
-                logging.warn('failed to rename %s.open to %s (%s)',
-                             self.fn, self.fn, ex)
+            except Exception as ex:
+                logging.warning('failed to rename %s.open to %s (%s)',
+                                self.fn, self.fn, ex)
     def write_record(self, message):
         """message must be one whole streaming message."""
         if self.f is None:
-            raise IOError, "attempted to write into closed file %s" % self.fn
+            raise IOError("attempted to write into closed file %s" % self.fn)
         z = GzipFile(fileobj=self.f, mode='wb', compresslevel=self.complevel)
         z.write(message)
-        z.write('\r\n')
+        z.write(b'\r\n')
         z.close()
         self.f.flush()
 
@@ -97,8 +92,11 @@ class Archiver(object):
         return os.path.join(self.destdir, fn)
 
     def archive_message(self, message):
+        """
+        :type message: bytes
+        """
         if isinstance(message, dict):
-            message = json.dumps(message)
+            message = json.dumps(message).encode('utf-8')
 
         if self.arc and self.rolldate is not None:
             cdate = self.arc.ctime.strftime(self.rolldate)
@@ -123,7 +121,7 @@ class HeadquarterSubmitter(object):
     def put(self, curls):
         ep = '{}/{}/mdiscovered'.format(self.epbase, self.job)
         headers = { 'Content-Type': 'text/json' }
-        data = json.dumps(curls)
+        data = json.dumps(curls).encode('utf-8')
         req = urllib2.Request(ep, data, headers)
         f = urllib2.urlopen(req, timeout=10)
         if f.code != 200:
@@ -196,10 +194,10 @@ class Pipeline(object):
                         self.receiver.put(data)
                         # TODO: write to journal
                         self.items = None
-                    except Exception, ex:
-                        logging.warn('%s.put() failed (%s), retrying...',
-                                     self.receiver, ex, exc_info=1)
-                        gevent.sleep(5*60)
+                    except Exception as ex:
+                        logging.warning('%s.put() failed (%s), retrying...',
+                                        self.receiver, ex, exc_info=1)
+                        time.sleep(5*60)
         except Exception as ex:
             logging.error('Pipeline.run exiting by error', exc_info=1)
 
@@ -213,104 +211,26 @@ class StatSubmitter(object):
 
     def run(self):
         while 1:
-            gevent.sleep(5*60.0)
+            time.sleep(5*60.0)
             msg = []
             now = time.time()
             for stat, value in self.stats.items():
                 msg.append('{}.{} {:.3f} {:.0f}\n'.format(
-                        self.basename, stat, value, now))
+                    self.basename, stat, value, now))
 
             sock = socket.socket()
             try:
                 sock.connect(self.server)
             except:
-                logging.warn("couldn't connect to carbon server %s:%d",
-                             *self.server)
+                logging.warning("couldn't connect to carbon server %s:%d",
+                                *self.server)
                 continue
             try:
-                sock.sendall(''.join(msg))
+                sock.sendall(''.join(msg).encode('ascii'))
                 sock.close()
-            except Exception, ex:
-                logging.warn("error writing to carbon server (%s)", ex)
+            except Exception as ex:
+                logging.warning("error writing to carbon server (%s)", ex)
 
-class FirehoseDownloader(object):
-    RETRY_BACKOFF_FACTOR = 1.5
-    INITIAL_RETRY_INTERVAL = 10
-    MAX_RETRY_INTERVAL = 120 * 60
-
-    def __init__(self, endpoint, archiver, pipelines, auth=None):
-        self.endpoint = endpoint
-        self.archiver = archiver
-        self.pipelines = pipelines
-        self.auth = auth
-
-        self.retry_interval = self.INITIAL_RETRY_INTERVAL
-
-        # stats
-        self.stats = {
-            'connection.success': 0,
-            'connection.failure': 0,
-            'downloaded': 0
-            }
-
-    def run(self):
-        while 1:
-            # we cannot use HTTPBasicAuthHandler because server does not
-            # request authentication.
-            headers = {}
-            req = urllib2.Request(endpoint)
-            if self.auth:
-                auth = 'Basic {}'.format(base64.b64encode(self.auth).strip())
-                req.add_header('Authorization', auth)
-            opener = urllib2.build_opener(
-                )
-            try:
-                f = opener.open(req)
-                logging.info('firehose stream opened')
-                self.stats['connection.success'] += 1
-                self.retry_interval = self.INITIAL_RETRY_INTERVAL
-            except (urllib2.URLError, httplib.BadStatusLine, socket.error) as ex:
-                self.stats['connection.failure'] += 1
-                logging.warn('failed to open firehose stream (%s), '
-                             'holding off %d seconds',
-                             ex, self.retry_interval)
-                gevent.sleep(self.retry_interval)
-                self.retry_interval = min(
-                    self.retry_interval * self.RETRY_BACKOFF_FACTOR,
-                    self.MAX_RETRY_INTERVAL
-                    )
-                logging.info('retrying connection')
-                continue
-                    
-            for line in f:
-                if line == '\n': continue
-                self.stats['downloaded'] += 1
-                self.archiver.archive_message(line)
-
-                try:
-                    j = json.loads(line.rstrip())
-                except ValueError, ex:
-                    logging.warn('JSON decode failed: %r', line)
-                    continue
-
-                # TODO: make this one of pipelines?
-                verb = j.get('verb')
-                published = j.get('published')
-                blog = j.get('target')
-                blogurl = blog and blog.get('url')
-                post = j.get('object')
-                posturl = post and post.get('permalinkUrl')
-
-                print "{} {} {} {}".format(
-                    published, verb,
-                    printsafe(blogurl), printsafe(posturl)
-                )
-
-                for pl in self.pipelines:
-                    pl.put(j)
-
-            logging.warn('firehose stream closed')
-            self.archiver.close()
            
 opt = OptionParser('%prog URL')
 opt.add_option('--endpoint', dest='endpoint', default=None)

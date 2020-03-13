@@ -7,10 +7,11 @@ setup(
     author_email='kenji@archive.org',
     description=("application to read wordpress update feed and schedule"
                  " permalink to crawler"),
-    #packages=find_packages(),
+    packages=find_packages(),
     scripts=['process-firehose.py'],
     install_requires=[
         # requires libevent
         'gevent>=0.13.6',
+        'six'
         ]
     )
