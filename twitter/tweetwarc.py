@@ -170,7 +170,7 @@ def recover_offsets(args):
         if ent.name.endswith('.warc.gz'):
             if ent.name > last_warc:
                 last_warc = ent.name
-    if last_warc is '':
+    if last_warc == '':
         print('no warc.gz files found in %s' % (warcdir,), file=sys.stderr)
         return 1
     logging.info('scanning %s for partition offsets', last_warc)

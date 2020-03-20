@@ -6,6 +6,7 @@ Sends tweets to kafka topic.
 from __future__ import print_function, unicode_literals
 
 import os
+import sys
 from configobj import ConfigObj
 import logging
 import argparse

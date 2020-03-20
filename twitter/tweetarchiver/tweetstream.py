@@ -10,6 +10,7 @@ Features:
 - supports OAuth
 - retries upon connection failure transparently.
 """
+from __future__ import print_function
 import sys
 import time
 import httplib
@@ -221,4 +222,4 @@ if __name__ == '__main__':
     stream = TweetStream("/1.1/statuses/sample.json", config.get('twitter'))
 
     for tw in stream:
-        print >>sys.stderr, tw
+        print(tw, file=sys.stderr)

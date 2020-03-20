@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 #
+from __future__ import print_function
 import sys
 import os
 import re
@@ -154,7 +155,7 @@ config_file = args.config
 if os.path.isfile(config_file):
     config = yaml.load(open(config_file))
 else:
-    print >>sys.stderr, "config file {} is not found".format(config_file)
+    print("config file {} is not found".format(config_file), file=sys.stderr)
     exit(1)
 
 logconf = config.get('logging')
@@ -167,7 +168,7 @@ else:
         format='%(asctime)s %(levelname)s %(name)s %(message)s')
 
 if 'gdelt' not in config:    
-    print >>sys.stderr, "configuration must have 'gdelt' section"
+    print("configuration must have 'gdelt' section", file=sys.stderr)
     exit(1)
 
 sch = FeedScheduler(**config['gdelt'])

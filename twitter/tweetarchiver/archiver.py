@@ -68,7 +68,7 @@ class ArchiveFile(object):
     def write_record(self, message):
         """message must be one whole streaming message."""
         if self.f is None:
-            raise IOError, "attempted to write into closed file %s" % self.fn
+            raise IOError("attempted to write into closed file %s" % self.fn)
         z = GzipFile(fileobj=self.f, mode='wb', compresslevel=self.complevel)
         z.write(message)
         z.write('\r\n')
