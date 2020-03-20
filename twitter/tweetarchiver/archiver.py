@@ -62,7 +62,7 @@ class ArchiveFile(object):
             self.f = None
             try:
                 os.rename(self.fn + '.open', self.fn)
-            except Exception, ex:
+            except Exception as ex:
                 logging.warn('failed to rename %s.open to %s (%s)',
                              self.fn, self.fn, ex)
     def write_record(self, message):

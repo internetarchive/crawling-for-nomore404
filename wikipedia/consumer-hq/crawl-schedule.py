@@ -57,7 +57,7 @@ class CrawlScheduler(object):
                 if n > 0:
                     self._log.info('submission retry succeeded')
                 break
-            except Exception, ex:
+            except Exception as ex:
                 self._log.warn('submission failed (%s), retrying after 30s',
                              ex)
                 time.sleep(30.0)

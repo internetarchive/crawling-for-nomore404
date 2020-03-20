@@ -137,7 +137,7 @@ class TweetStream(object):
         Tweet is returned as raw bytes (not including EOL separating
         tweets - not parsed JSON.
         """
-        while 1:
+        while True:
             if self._response is None:
                 if self._connection_tries > 0:
                     backoff = min(self._connection_tries * self.BACKOFF_INCREMENT,

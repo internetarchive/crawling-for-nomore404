@@ -50,7 +50,7 @@ class FirehoseDownloader(object):
             }
 
     def run(self):
-        while 1:
+        while True:
             # we cannot use HTTPBasicAuthHandler because server does not
             # request authentication.
             req = urllib2.Request(self.endpoint)

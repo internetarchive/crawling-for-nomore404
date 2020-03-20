@@ -176,7 +176,7 @@ class Pipeline(object):
         items = [self.queue.get()]
         # read more items if available
         try:
-            while 1:
+            while True:
                 item = self.queue.get_nowait()
                 items.append(item)
         except Empty:
@@ -185,7 +185,7 @@ class Pipeline(object):
             
     def run(self):
         try:
-            while 1:
+            while True:
                 if self.items is None:
                     self.items = self._get_batch()
                 if self.items:
@@ -210,7 +210,7 @@ class StatSubmitter(object):
         self.stats = stats
 
     def run(self):
-        while 1:
+        while True:
             time.sleep(5*60.0)
             msg = []
             now = time.time()
