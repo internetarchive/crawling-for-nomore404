@@ -54,7 +54,7 @@ logging.basicConfig(format='%(asctime)s %(name)s %(levelname)s %(message)s',
 archiver = Archiver(destdir=destdir)
 logging.info('starting up')
 try:    
-    stream = TweetStream("/1.1/statuses/sample.json", ts_config)
+    stream = TweetStream("/2/tweets/sample/stream", ts_config)
     for tw in stream:
         archiver.archive_message(tw)
 except KeyboardInterrupt as ex:

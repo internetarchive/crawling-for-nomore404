@@ -218,7 +218,7 @@ if __name__ == '__main__':
     config = configobj.ConfigObj(args.config)
     if 'twitter' not in config:
         raise Exception('twitter section not found in twitter.conf')
-    stream = TweetStream("/1.1/statuses/sample.json", config.get('twitter'))
+    stream = TweetStream("/2/tweets/sample/stream", config.get('twitter'))
 
     for tw in stream:
         print >>sys.stderr, tw
