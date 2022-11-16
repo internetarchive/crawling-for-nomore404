@@ -59,7 +59,7 @@ class TweetStream(object):
             "access_token_secret")
         self._token = oauth2.Token(key=access_token, secret=access_secret)
         self._twitter_stream_host = self._get_configuration_key(
-            "twitter_stream_host", "stream.twitter.com")
+            "twitter_stream_host", "api.twitter.com")
         self._twitter_stream_scheme = self._get_configuration_key(
             "twitter_stream_scheme", "https")
         self._twitter_stream_port = self._get_configuration_key(
@@ -178,7 +178,7 @@ class TweetStream(object):
         parameters = dict(self._parameters,
                           oauth_token=self._token.key,
                           oauth_consumer_key=self._consumer.key,
-                          oauth_version='1.0',
+                          oauth_version='2.0',
                           oauth_nonce=oauth2.generate_nonce(),
                           oauth_timestamp=int(time.time())
                           )

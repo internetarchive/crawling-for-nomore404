@@ -14,10 +14,7 @@ import json
 import logging
 import logging.config
 import os
-try:
-    from os import scandir
-except ImportError:
-    from scandir import scandir
+from os import scandir, walk
 import re
 import traceback
 import socket

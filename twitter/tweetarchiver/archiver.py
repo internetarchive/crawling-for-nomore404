@@ -62,13 +62,13 @@ class ArchiveFile(object):
             self.f = None
             try:
                 os.rename(self.fn + '.open', self.fn)
-            except Exception, ex:
+            except Exception as ex:
                 logging.warn('failed to rename %s.open to %s (%s)',
                              self.fn, self.fn, ex)
     def write_record(self, message):
         """message must be one whole streaming message."""
         if self.f is None:
-            raise IOError, "attempted to write into closed file %s" % self.fn
+            raise IOError("attempted to write into closed file %s" % self.fn)
         z = GzipFile(fileobj=self.f, mode='wb', compresslevel=self.complevel)
         z.write(message)
         z.write('\r\n')

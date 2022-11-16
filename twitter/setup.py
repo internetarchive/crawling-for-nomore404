@@ -14,11 +14,11 @@ setup(
         #'tweetstream==0.2.0',
         'ujson',
         'configobj',
-        'oauth2-utf8==1.5.170',
+        'oauth2',
         'kafka-python',
         'PyYAML>=5',
         'warctools',
-        'scandir;python_version<"3"'
+        'scandir;python_version>"3.7"'
     ],
     scripts=[
         'archivestream.py',
