@@ -15,7 +15,6 @@ from email.utils import formatdate
 import json
 from tweetarchiver.twitterstream import Stream as TwitterStream
 
-from tweetarchiver.tweetstream import TweetStream
 from kafka import KafkaProducer
 
 parser = argparse.ArgumentParser()

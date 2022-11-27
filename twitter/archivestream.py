@@ -22,7 +22,6 @@ import time
 import json
 from tweetarchiver.twitterstream import Stream as TwitterStream
 
-from tweetarchiver.tweetstream import TweetStream
 from tweetarchiver.archiver import Archiver
 
 parser = argparse.ArgumentParser()
