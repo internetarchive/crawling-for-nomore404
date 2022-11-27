@@ -13,7 +13,7 @@ import io
 import time
 from email.utils import formatdate
 import json
-from twitterstream impor Stream as TwitterStream
+from twitterstream import Stream as TwitterStream
 
 from tweetarchiver.tweetstream import TweetStream
 from kafka import KafkaProducer
