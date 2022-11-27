@@ -12,6 +12,8 @@ import argparse
 import io
 import time
 from email.utils import formatdate
+import json
+from twitterstream impor Stream as TwitterStream
 
 from tweetarchiver.tweetstream import TweetStream
 from kafka import KafkaProducer
@@ -65,7 +67,7 @@ except ConfigError as ex:
     exit(1)
 
 common_headers = {
-    'Source': '/1.1/statuses/sample.json',
+    'Source': '/2/tweets/sample/stream',
     }
 common_header_bytes = b''.join(
     '{}: {}\r\n'.format(n, v).encode('utf-8')
@@ -75,7 +77,7 @@ common_header_bytes = b''.join(
 try:
     producer = KafkaProducer(bootstrap_servers=server)
 
-    stream = TweetStream("/1.1/statuses/sample.json", tw_config)
+    stream = TwitterStream()
     for tweet in stream:
         buf = io.BytesIO()
         buf.write(common_header_bytes)

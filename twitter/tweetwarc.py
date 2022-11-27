@@ -64,8 +64,8 @@ def tweet_warc_record(tweet_json):
         if 'user' not in tweet:
             return
         url = "https://twitter.com/%s/status/%s" % (
-            tweet['user']['screen_name'],
-            tweet['id']
+            tweet['includes']['users'][0]['username'],
+            tweet['data']['id']
         )
     except Exception as ex:
         logging.error('error in tweet_warc_record', exc_info=1)

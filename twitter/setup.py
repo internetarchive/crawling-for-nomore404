@@ -18,6 +18,7 @@ setup(
         'kafka-python',
         'PyYAML>=5',
         'warctools',
+        'twitter-stream.py',
         'scandir;python_version>"3.7"'
     ],
     scripts=[

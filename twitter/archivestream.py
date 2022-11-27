@@ -19,6 +19,8 @@ from configobj import ConfigObj
 import logging
 import argparse
 import time
+import json
+from tweetarchiver.twitterstream import Stream as TwitterStream
 
 from tweetarchiver.tweetstream import TweetStream
 from tweetarchiver.archiver import Archiver
@@ -43,19 +45,21 @@ if not os.path.isdir(destdir):
     print('destdir %s does not exist' % destdir, file=sys.stderr)
     exit(1)
 
-ts_config = conf.get('twitter')
-if ts_config is None:
-    print("configuration file must have [twitter] section", file=sys.stderr)
-    exit(1)
+# not required in new setup
+# ts_config = conf.get('twitter')
+# if ts_config is None:
+#     print("configuration file must have [twitter] section", file=sys.stderr)
+#     exit(1)
 
 logging.basicConfig(format='%(asctime)s %(name)s %(levelname)s %(message)s',
                     filename=logfile, level=logging.INFO)
 
 archiver = Archiver(destdir=destdir)
 logging.info('starting up')
+
 try:    
-    stream = TweetStream("/2/tweets/sample/stream", ts_config)
-    for tw in stream:
+    tw_stream = TwitterStream()
+    for tw in tw_stream.connect():
         archiver.archive_message(tw)
 except KeyboardInterrupt as ex:
     pass

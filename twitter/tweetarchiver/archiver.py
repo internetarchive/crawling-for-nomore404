@@ -43,7 +43,7 @@ class Archiver(object):
             message = json.dumps(message)
         if self.arc is None:
             self.arc = ArchiveFile(self._makefn())
-
+            
         self.arc.write_record(message)
 
         if self.arc.size() > self.rollsize:
@@ -70,8 +70,8 @@ class ArchiveFile(object):
         if self.f is None:
             raise IOError("attempted to write into closed file %s" % self.fn)
         z = GzipFile(fileobj=self.f, mode='wb', compresslevel=self.complevel)
-        z.write(message)
-        z.write('\r\n')
+        z.write(message.encode())
+        z.write(b'\r\n')
         z.close()
         self.f.flush()
 
