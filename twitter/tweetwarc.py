@@ -424,6 +424,6 @@ finally:
         try:
             os.unlink(args.lock)
         except OSError as ex:
-            logging.warn("failed to delete %s: %s", args.lock, ex)
+            logging.warning("failed to delete %s: %s", args.lock, ex)
 
 exit(exitcode)
