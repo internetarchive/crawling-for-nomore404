@@ -70,8 +70,7 @@ class ArchiveFile(object):
         if self.f is None:
             raise IOError("attempted to write into closed file %s" % self.fn)
         z = GzipFile(fileobj=self.f, mode='wb', compresslevel=self.complevel)
-        z.write(message.encode())
-        z.write(b'\r\n')
+        z.write(message.encode()+b'\r\n')
         z.close()
         self.f.flush()
 
