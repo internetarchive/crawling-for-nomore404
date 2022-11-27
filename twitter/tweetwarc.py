@@ -59,10 +59,7 @@ def tweet_warc_record(tweet_json):
     """Parse Tweet JSON and return WarcRecord.
     """
     try:
-        tweet = json.loads(tweet_json)
-        # skip deleted tweet
-        if 'user' not in tweet:
-            return
+        tweet = json.loads(tweet_json.replace("\'", "\""))
         url = "https://twitter.com/%s/status/%s" % (
             tweet['includes']['users'][0]['username'],
             tweet['data']['id']
