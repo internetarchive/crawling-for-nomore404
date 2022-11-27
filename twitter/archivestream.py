@@ -45,11 +45,6 @@ if not os.path.isdir(destdir):
     print('destdir %s does not exist' % destdir, file=sys.stderr)
     exit(1)
 
-# not required in new setup
-# ts_config = conf.get('twitter')
-# if ts_config is None:
-#     print("configuration file must have [twitter] section", file=sys.stderr)
-#     exit(1)
 
 logging.basicConfig(format='%(asctime)s %(name)s %(levelname)s %(message)s',
                     filename=logfile, level=logging.INFO)
