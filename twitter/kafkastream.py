@@ -13,7 +13,7 @@ import io
 import time
 from email.utils import formatdate
 import json
-from twitterstream import Stream as TwitterStream
+from tweetarchiver.twitterstream import Stream as TwitterStream
 
 from tweetarchiver.tweetstream import TweetStream
 from kafka import KafkaProducer
@@ -78,12 +78,12 @@ try:
     producer = KafkaProducer(bootstrap_servers=server)
 
     stream = TwitterStream()
-    for tweet in stream:
+    for tweet in stream.connect():
         buf = io.BytesIO()
         buf.write(common_header_bytes)
         buf.write('Date: {}\r\n'.format(httpdate(time.time())).encode('ascii'))
         buf.write(b'\r\n')
-        buf.write(tweet.encode())
+        buf.write(str(tweet).encode())
         buf.write(b'\r\n')
 
         payload = buf.getvalue()
