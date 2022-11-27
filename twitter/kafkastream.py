@@ -82,7 +82,7 @@ try:
         buf.write(common_header_bytes)
         buf.write('Date: {}\r\n'.format(httpdate(time.time())).encode('ascii'))
         buf.write(b'\r\n')
-        buf.write(str(tweet).encode())
+        buf.write(str(tweet).encode('utf-8'))
         buf.write(b'\r\n')
 
         payload = buf.getvalue()
