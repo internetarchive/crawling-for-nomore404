@@ -59,7 +59,7 @@ def tweet_warc_record(tweet_json):
     """Parse Tweet JSON and return WarcRecord.
     """
     try:
-        tweet = json.loads(tweet_json.replace("\'", "\""))
+        tweet = json.loads(tweet_json)
         url = "https://twitter.com/%s/status/%s" % (
             tweet['includes']['users'][0]['username'],
             tweet['data']['id']
