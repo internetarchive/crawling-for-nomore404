@@ -14,10 +14,7 @@ import json
 import logging
 import logging.config
 import os
-try:
-    from os import scandir
-except ImportError:
-    from scandir import scandir
+from os import scandir, walk
 import re
 import traceback
 import socket
@@ -63,12 +60,9 @@ def tweet_warc_record(tweet_json):
     """
     try:
         tweet = json.loads(tweet_json)
-        # skip deleted tweet
-        if 'user' not in tweet:
-            return
         url = "https://twitter.com/%s/status/%s" % (
-            tweet['user']['screen_name'],
-            tweet['id']
+            tweet['includes']['users'][0]['username'],
+            tweet['data']['id']
         )
     except Exception as ex:
         logging.error('error in tweet_warc_record', exc_info=1)
@@ -430,6 +424,6 @@ finally:
         try:
             os.unlink(args.lock)
         except OSError as ex:
-            logging.warn("failed to delete %s: %s", args.lock, ex)
+            logging.warning("failed to delete %s: %s", args.lock, ex)
 
 exit(exitcode)

@@ -1,6 +1,7 @@
 #!/usr/bin/python
 #
 """
+Not required now, but pushing it for future reference
 Twitter Stream API client inspired by 
 - https://github.com/joshmarshall/TweetStream
 - https://github.com/ultrabug/geventweet
@@ -11,11 +12,13 @@ Features:
 - retries upon connection failure transparently.
 """
 import sys
+import json
 import time
-import httplib
+import http.client as client
 import oauth2
-import urlparse
-from cStringIO import StringIO
+from urllib.parse import urlparse
+from urllib.parse import parse_qs
+from io import StringIO
 
 import logging
 
@@ -49,17 +52,8 @@ class TweetStream(object):
         self._callback = None
         self._error_callback = None
         self._configuration = configuration
-        consumer_key = self._get_configuration_key("consumer_key")
-        consumer_secret = self._get_configuration_key(
-            "consumer_secret")
-        self._consumer = oauth2.Consumer(
-            key=consumer_key, secret=consumer_secret)
-        access_token = self._get_configuration_key("access_token_key")
-        access_secret = self._get_configuration_key(
-            "access_token_secret")
-        self._token = oauth2.Token(key=access_token, secret=access_secret)
         self._twitter_stream_host = self._get_configuration_key(
-            "twitter_stream_host", "stream.twitter.com")
+            "twitter_stream_host", "api.twitter.com")
         self._twitter_stream_scheme = self._get_configuration_key(
             "twitter_stream_scheme", "https")
         self._twitter_stream_port = self._get_configuration_key(
@@ -67,7 +61,7 @@ class TweetStream(object):
         self._timeout = self._get_configuration_key(
             "twitter_stream_timeout", 1800)
 
-        parts = urlparse.urlparse(path)
+        parts = urlparse(path)
         self._path = parts.path
         self._full_path = self._path
         self._parameters = {}
@@ -77,7 +71,7 @@ class TweetStream(object):
         # throwing away empty or extra query arguments
         self._parameters = dict([
             (key, value[0]) for key, value in
-            urlparse.parse_qs(parts.query).iteritems()
+            parse_qs(parts.query).items()
             if value
         ])
 
@@ -132,7 +126,7 @@ class TweetStream(object):
             buffers.append(data)
         return ''.join(buffers)
         
-    def next(self):
+    def __next__(self):
         """Return next tweet coming in. Blocks until tweet arrives.
         Tweet is returned as raw bytes (not including EOL separating
         tweets - not parsed JSON.
@@ -159,7 +153,7 @@ class TweetStream(object):
                 self._log.info('failed to read line: %s', ex)
                 self._response = None
                 continue
-            except httplib.IncompleteRead as ex:
+            except client.IncompleteRead as ex:
                 self._log.info('failed to read line: %s', ex)
                 self._response = None
                 continue
@@ -168,35 +162,32 @@ class TweetStream(object):
     def _open_twitter_stream(self):
         """ Creates the client and watches stream """
         if self._twitter_stream_scheme == 'https':
-            http = httplib.HTTPSConnection(self._twitter_stream_host,
+            http = client.HTTPSConnection(self._twitter_stream_host,
                                            self._twitter_stream_port,
                                            timeout=self._timeout)
         else:
-            http = httplib.HTTPConnection(self._twitter_stream_host,
+            http = client.HTTPConnection(self._twitter_stream_host,
                                           self._twitter_stream_port,
                                           timeout=self._timeout)
-        parameters = dict(self._parameters,
-                          oauth_token=self._token.key,
-                          oauth_consumer_key=self._consumer.key,
-                          oauth_version='1.0',
-                          oauth_nonce=oauth2.generate_nonce(),
-                          oauth_timestamp=int(time.time())
-                          )
+        parameters = dict(self._parameters)
+
+        print("{}://{}{}".format(self._twitter_stream_scheme,
+                                   self._twitter_stream_host,
+                                   self._path))
         request = oauth2.Request(
             method="GET",
             url="{}://{}{}".format(self._twitter_stream_scheme,
                                    self._twitter_stream_host,
                                    self._path),
             parameters=parameters)
-        signature_method = oauth2.SignatureMethod_HMAC_SHA1()
+        # signature_method = oauth2.SignatureMethod_HMAC_SHA1()
 
-        request.sign_request(signature_method, self._consumer, self._token)
+        # request.sign_request(signature_method, self._consumer, self._token)
         headers = request.to_header()
         headers.update(self.HEADERS)
 
         self._log.info('requesting GET %s', self._path)
         http.request('GET', self._path, headers=headers)
-
         self._response = http.getresponse()
         self._log.info('got response %s', self._response.status)
         if self._response.status == 401:
@@ -218,7 +209,7 @@ if __name__ == '__main__':
     config = configobj.ConfigObj(args.config)
     if 'twitter' not in config:
         raise Exception('twitter section not found in twitter.conf')
-    stream = TweetStream("/1.1/statuses/sample.json", config.get('twitter'))
-
-    for tw in stream:
+    stream = TweetStream("/2/tweets/sample/stream?expansions=author_id&user.fields=created_at,username", config.get('twitter'))
+    for tw in next(stream):
+        print(tw)
         print >>sys.stderr, tw
