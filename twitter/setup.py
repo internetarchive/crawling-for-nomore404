@@ -16,7 +16,8 @@ setup(
         'configobj',
         'oauth2',
         'kafka-python',
-        'PyYAML>=5',
+        # twitter-stream.py has narrow constraint PyYAML==5.4.1
+        'PyYAML>=5,<6',
         'warctools',
         'twitter-stream.py'
     ],
