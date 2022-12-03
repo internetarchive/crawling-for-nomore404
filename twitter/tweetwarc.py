@@ -30,7 +30,7 @@ from kafka.errors import CommitFailedError
 def warc_uuid(text):
     """Utility method for WARC header field urn:uuid"""
     return ("<urn:uuid:%s>" %
-            uuid.UUID(hashlib.sha1(text).hexdigest()[0:32])).encode('ascii')
+            uuid.UUID(hashlib.sha1(text.encode('ascii')).hexdigest()[0:32]))
 
 
 def warcinfo_record(warc_filename):
@@ -38,20 +38,22 @@ def warcinfo_record(warc_filename):
     Required to write in the beginning of a WARC file.
     """
     warc_date = warc_datetime_str(datetime.utcnow())
+
     metadata = "\r\n".join((
         "format: WARC File Format 1.0",
         "conformsTo: http://bibnum.bnf.fr/WARC/WARC_ISO_28500_version1_latestdraft.pdf"
     ))
+
     return WarcRecord(
         headers=[
             (WarcRecord.TYPE, WarcRecord.WARCINFO),
             (WarcRecord.CONTENT_TYPE, b'application/warc-fields'),
-            (WarcRecord.ID, warc_uuid(metadata+warc_date)),
+            (WarcRecord.ID, bytes(warc_uuid(metadata + str(warc_date)), 'ascii')),
             (WarcRecord.DATE, warc_date),
-            (WarcRecord.FILENAME, warc_filename)
+            (WarcRecord.FILENAME, bytes(warc_filename, 'ascii'))
         ],
-        content=(b'application/warc-fields', metadata + "\r\n"),
-        version=b"WARC/1.0"
+        content = (b'application/warc-fields', bytes(metadata + "\r\n", 'utf-8')),
+        version= b"WARC/1.0"
     )
 
 
@@ -68,17 +70,18 @@ def tweet_warc_record(tweet_json):
         logging.error('error in tweet_warc_record', exc_info=1)
         return None
 
-    warc_date = tweet['data']['created_at']
+    warc_date = warc_datetime_str(datetime.utcnow())
+
     return WarcRecord(
         headers=[
             (WarcRecord.TYPE, WarcRecord.RESOURCE),
             (WarcRecord.CONTENT_TYPE, b'application/json'),
-            (WarcRecord.ID, warc_uuid(url+warc_date)),
-            (WarcRecord.URL, url),
+            (WarcRecord.ID, bytes(warc_uuid(url + str(warc_date)), 'ascii')),
+            (WarcRecord.URL, bytes(url, 'utf-8')),
             (WarcRecord.DATE, warc_date)
         ],
-        content=(b'application/json', tweet_json + "\r\n"),
-        version=b"WARC/1.0"
+        content = (b'application/json', bytes(tweet_json + "\r\n", 'utf-8')),
+        version = b"WARC/1.0"
     )
 
 class WarcFile(object):
@@ -163,7 +166,7 @@ def recover_offsets(args):
         if ent.name.endswith('.warc.gz'):
             if ent.name > last_warc:
                 last_warc = ent.name
-    if last_warc is '':
+    if last_warc == '':
         print('no warc.gz files found in %s' % (warcdir,), file=sys.stderr)
         return 1
     logging.info('scanning %s for partition offsets', last_warc)
@@ -348,8 +351,8 @@ try:
                 if record:
                     # used for tracking
                     record.headers.append((
-                        'Archive-Source',
-                        '{0.topic}/{0.partition}/{0.offset}'.format(msg)
+                        b'Archive-Source',
+                        bytes('{0.topic}/{0.partition}/{0.offset}'.format(msg), 'utf-8')
                     ))
                     if warc is None:
                         try:
