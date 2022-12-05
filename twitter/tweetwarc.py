@@ -37,7 +37,7 @@ def warcinfo_record(warc_filename):
     """Return warcinfo WarcRecord.
     Required to write in the beginning of a WARC file.
     """
-    warc_date = warc_datetime_str(datetime.utcnow())
+    warc_date = tweet['data']['created_at']
 
     metadata = "\r\n".join((
         "format: WARC File Format 1.0",
