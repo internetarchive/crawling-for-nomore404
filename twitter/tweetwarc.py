@@ -70,7 +70,7 @@ def tweet_warc_record(tweet_json):
         logging.error('error in tweet_warc_record', exc_info=1)
         return None
 
-    warc_date = warc_datetime_str(datetime.utcnow())
+    warc_date = tweet['data']['created_at']
 
     return WarcRecord(
         headers=[
