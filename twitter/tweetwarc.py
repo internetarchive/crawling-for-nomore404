@@ -37,22 +37,24 @@ def warcinfo_record(warc_filename):
     """Return warcinfo WarcRecord.
     Required to write in the beginning of a WARC file.
     """
-    warc_date = tweet['data']['created_at']
+    # warcinfo record is timestamped with the current time
+    # note warc_datetime_str() returns a bytes string
+    warc_date = warc_datetime_str(datetime.utcnow())
 
     metadata = "\r\n".join((
         "format: WARC File Format 1.0",
         "conformsTo: http://bibnum.bnf.fr/WARC/WARC_ISO_28500_version1_latestdraft.pdf"
-    ))
+    )).encode('utf-8')
 
     return WarcRecord(
         headers=[
             (WarcRecord.TYPE, WarcRecord.WARCINFO),
             (WarcRecord.CONTENT_TYPE, b'application/warc-fields'),
-            (WarcRecord.ID, bytes(warc_uuid(metadata + str(warc_date)), 'ascii')),
+            (WarcRecord.ID, warc_uuid(metadata + warc_date).encode('ascii')),
             (WarcRecord.DATE, warc_date),
-            (WarcRecord.FILENAME, bytes(warc_filename, 'ascii'))
+            (WarcRecord.FILENAME, warc_filename.encode('ascii'))
         ],
-        content = (b'application/warc-fields', bytes(metadata + "\r\n", 'utf-8')),
+        content = (b'application/warc-fields', metadata + b'\r\n'),
         version= b"WARC/1.0"
     )
 
