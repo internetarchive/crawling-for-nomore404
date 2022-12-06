@@ -13,7 +13,9 @@ import io
 import time
 from email.utils import formatdate
 import json
-from tweetarchiver.twitterstream import Stream as TwitterStream
+# from tweetarchiver.twitterstream import Stream as TwitterStream
+
+from tweetarchiver.tweetstream import connect_to_endpoint
 
 from kafka import KafkaProducer
 
@@ -66,19 +68,19 @@ except ConfigError as ex:
     exit(1)
 
 common_headers = {
-    'Source': '/2/tweets/sample/stream',
+    'Source': 'https://api.twitter.com/2/tweets/sample/stream',
     }
 common_header_bytes = b''.join(
     '{}: {}\r\n'.format(n, v).encode('utf-8')
     for n, v in common_headers.items()
     )
 
-while True:
-    try:
-        producer = KafkaProducer(bootstrap_servers=server)
-
-        stream = TwitterStream()
-        for tweet in stream.connect():
+try:
+    producer = KafkaProducer(bootstrap_servers=server)
+    stream = connect_to_endpoint()
+    while True:
+        tweet = next(stream)
+        if(tweet):
             buf = io.BytesIO()
             buf.write(common_header_bytes)
             buf.write('Date: {}\r\n'.format(httpdate(time.time())).encode('ascii'))
@@ -91,10 +93,10 @@ while True:
             producer.send(topic, payload)
             t = time.time() - t0
             logging.debug('message %d bytes %.0fmus', len(payload), t * 1000000)
-
-    except Exception as ex:
-        continue
-    except KeyboardInterrupt as ex:
-        pass
-    finally:
-        logging.info('terminating')
+            
+except KeyboardInterrupt as keyboardex:
+    pass
+except Exception as ex:
+    logging.info(ex)
+finally:
+    logging.info('terminating')
