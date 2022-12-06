@@ -73,25 +73,28 @@ common_header_bytes = b''.join(
     for n, v in common_headers.items()
     )
 
-try:
-    producer = KafkaProducer(bootstrap_servers=server)
+while True:
+    try:
+        producer = KafkaProducer(bootstrap_servers=server)
 
-    stream = TwitterStream()
-    for tweet in stream.connect():
-        buf = io.BytesIO()
-        buf.write(common_header_bytes)
-        buf.write('Date: {}\r\n'.format(httpdate(time.time())).encode('ascii'))
-        buf.write(b'\r\n')
-        buf.write(json.dumps(tweet, ensure_ascii=False).encode('utf-8'))
-        buf.write(b'\r\n')
+        stream = TwitterStream()
+        for tweet in stream.connect():
+            buf = io.BytesIO()
+            buf.write(common_header_bytes)
+            buf.write('Date: {}\r\n'.format(httpdate(time.time())).encode('ascii'))
+            buf.write(b'\r\n')
+            buf.write(json.dumps(tweet).encode('utf-8'))
+            buf.write(b'\r\n')
 
-        payload = buf.getvalue()
-        t0 = time.time()
-        producer.send(topic, payload)
-        t = time.time() - t0
-        logging.debug('message %d bytes %.0fmus', len(payload), t * 1000000)
+            payload = buf.getvalue()
+            t0 = time.time()
+            producer.send(topic, payload)
+            t = time.time() - t0
+            logging.debug('message %d bytes %.0fmus', len(payload), t * 1000000)
 
-except KeyboardInterrupt as ex:
-    pass
-finally:
-    logging.info('terminating')
+    except Exception as ex:
+        continue
+    except KeyboardInterrupt as ex:
+        pass
+    finally:
+        logging.info('terminating')
