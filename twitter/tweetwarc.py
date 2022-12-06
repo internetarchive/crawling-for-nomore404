@@ -28,9 +28,12 @@ from kafka import KafkaConsumer, TopicPartition
 from kafka.errors import CommitFailedError
 
 def warc_uuid(text):
-    """Utility method for WARC header field urn:uuid"""
+    """Utility method for WARC header field urn:uuid
+    :param text: content to be hashed
+    :type text: bytes
+    """
     return ("<urn:uuid:%s>" %
-            uuid.UUID(hashlib.sha1(text.encode('ascii')).hexdigest()[0:32]))
+            uuid.UUID(hashlib.sha1(text).hexdigest()[0:32]))
 
 
 def warcinfo_record(warc_filename):
@@ -72,17 +75,17 @@ def tweet_warc_record(tweet_json):
         logging.error('error in tweet_warc_record', exc_info=1)
         return None
 
-    warc_date = tweet['data']['created_at']
+    warc_date = tweet['data']['created_at'].encode('ascii')
 
     return WarcRecord(
         headers=[
             (WarcRecord.TYPE, WarcRecord.RESOURCE),
             (WarcRecord.CONTENT_TYPE, b'application/json'),
-            (WarcRecord.ID, bytes(warc_uuid(url + str(warc_date)), 'ascii')),
-            (WarcRecord.URL, bytes(url, 'utf-8')),
+            (WarcRecord.ID, warc_uuid(url.encode('utf-8') + warc_date).encode('ascii')),
+            (WarcRecord.URL, url.encode('utf-8')),
             (WarcRecord.DATE, warc_date)
         ],
-        content = (b'application/json', bytes(tweet_json + "\r\n", 'utf-8')),
+        content = (b'application/json', tweet_json.encode('utf-8') + b"\r\n"),
         version = b"WARC/1.0"
     )
 
@@ -136,17 +139,18 @@ class WarcFile(object):
         os.rename(self.target_filename, self.target_filename[:-5])
 
 
-def start_consumer():
+def start_consumer(config):
     # access global vars: config, args
     consumer = KafkaConsumer(
         bootstrap_servers=config.get('kafka_bootstrap_servers'),
         client_id=config.get('kafka_client_id'),
-        group_id=args.group or config.get('kafka_group_id'),
+        group_id=config.get('kafka_group_id'),
         # use small number not to exceed session_timeout.
         max_poll_records=5,
         session_timeout_ms=120*1000,
         auto_offset_reset='earliest',
-        enable_auto_commit=False if args.seek else True
+        enable_auto_commit=config.get('kafka_enable_auto_commit', True),
+        consumer_timeout_ms=int(config.get('kafka_consumer_timeout_ms', 3000))
     )
     kafka_topic = config.get('kafka_topic')
     consumer.subscribe([kafka_topic])
@@ -198,236 +202,248 @@ def recover_offsets(args):
                              for p in sorted(partition_offset.keys())))
     return 0
 
-parser = argparse.ArgumentParser()
-parser.add_argument('-c', '--config', default='./tweetwarc.yaml',
-                    help='YAML configuration file (default %(default)s)')
-parser.add_argument('-d', '--directory', default='.',
-                    help='Directory to store tweets WARC.')
-parser.add_argument('--group', default=None,
-                    help='override consumer group ID for testing')
-parser.add_argument('-v', action='count', dest='loglevel', default=0,
-                    help='generate DEBUG level logs')
-parser.add_argument('--recover-offsets', action='store_true', default=False)
-parser.add_argument('--seek', default=None,
-                    help='update consumer offset and exit (for failure recovery)')
-parser.add_argument('--lock', default=None,
-                    help='path of lock file that is created at startup and '
-                    'removed at clean shutdown. If this file exists, tweetwarc '
-                    'refuses to start')
-
-args = parser.parse_args()
-
-with open(args.config) as f:
-    config = yaml.safe_load(f)
-
-# logging level control: -v will log DEBUG for all but kafka.*
-# -vv will log DEBUG including kafka.coordinator.*
-# -vvv will log DEBUG including kafka.*
-logging.basicConfig(
-    level=logging.DEBUG if args.loglevel > 0 else logging.INFO,
-    format='[%(asctime)s] %(levelname)s %(name)s %(message)s',
-    datefmt='%F %T'
-)
-
-if 'logging' in config:
-    logging.config.dictConfig(config['logging'])
-
-if args.loglevel < 3:
-    logging.getLogger('kafka').setLevel(logging.INFO)
-if args.loglevel == 2:
-    logging.getLogger('kafka.coordinator').setLevel(logging.INFO)
-
-if args.recover_offsets:
-    exit(recover_offsets(args))
-
-consumer = start_consumer()
-if args.seek:
-    # this is a rudimentary recovery aid for advancing consumer offset.
-    # currently this app experiences unexpected revokation of assigned
-    # partition and subsequent failure to commit consumer offsets. When
-    # this happens, stop the app and advance offset with this.
-    seeks = []
-    parts = args.seek.split(',')
-    for part in parts:
-        target_partition, _, target_offset = part.strip().partition(':')
-        if not target_offset:
-            parser.error('--seek expects PARTITION:OFFSET[,PARTITION:OFFSET...]')
-        partition = TopicPartition(config.get('kafka_topic'),
-                                          int(target_partition))
-        offset = int(target_offset)
-        seeks.append((partition, offset))
-
-    msgs = consumer.poll(max_records=1)
-    logging.info('msgs=%s', msgs)
-    while True:
-        a = consumer.assignment()
-        if a:
-            missing_partitions = [tp for tp, o in seeks if tp not in a]
-            if missing_partitions:
-                logging.error('partitions %s are missing in the assignment. '
-                              'it may succeed if you try again,',
-                              missing_partitions)
-                consumer.close()
-                exit(1)
-            if not all(tp in a for tp, o in seeks):
-                parser.error('assignment {} is insufficient'.format(a))
-            break
-        logging.info('assignment=%s', a)
-        time.sleep(1.0)
-
-    for target_partition, target_offset in seeks:
-        offset = consumer.committed(target_partition)
-        # this must be identical to the committed offset.
-        position = consumer.position(target_partition)
-
-        logging.info('partition %s: current committed offset=%s position=%s',
-                     target_partition.partition, offset, position)
-        if target_offset == position:
-            logging.info('no need to change position')
-            continue
-
-        logging.info('seeking to %s', target_offset)
-        consumer.seek(target_partition, target_offset)
-        logging.info('new position=%s', consumer.position(target_partition))
-
-    consumer.commit()
-    consumer.close()
-    exit(0)
-
-time_limit = config.get('warc_time_limit')
-size_limit = config.get('warc_size_limit')
-
 interrupted = False
 def interrupt(sig, stack):
     logging.info('received signal %s', sig)
     global interrupted
     interrupted = True
 
-signal.signal(signal.SIGINT, interrupt)
-signal.signal(signal.SIGTERM, interrupt)
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-c', '--config', default='./tweetwarc.yaml',
+                        help='YAML configuration file (default %(default)s)')
+    parser.add_argument('-d', '--directory', default='.',
+                        help='Directory to store tweets WARC.')
+    parser.add_argument('--group', default=None,
+                        help='override consumer group ID for testing')
+    parser.add_argument('-v', action='count', dest='loglevel', default=0,
+                        help='generate DEBUG level logs')
+    parser.add_argument('--recover-offsets', action='store_true', default=False)
+    parser.add_argument('--seek', default=None,
+                        help='update consumer offset and exit (for failure recovery)')
+    parser.add_argument('--lock', default=None,
+                        help='path of lock file that is created at startup and '
+                        'removed at clean shutdown. If this file exists, tweetwarc '
+                        'refuses to start')
 
-if args.lock:
-    if os.path.isfile(args.lock):
-        logging.error(
-            "lock file %s exists. it means previous run was not shut "
-            "down cleanly. you may need to repair warc files and adjust "
-            "consumer offset before restarting. remove this file when ready",
-            args.lock)
-        # exit with code=2 so that supervisor won't retry launching.
-        exit(2)
-    with open(args.lock, "w") as f:
-        f.write("{}\n".format(os.getpid()))
+    args = parser.parse_args()
 
-# coordinator may die because of communication breakdown. it can result in
-# duplicate archive if offset has not been committed. we record offsets that
-# has been successfully processed
-# each partition to avoid
-# avoid
-archived_offsets = {}
-warc = None
-try:
-    while not interrupted:
-        if consumer is None:
-            consumer = start_consumer()
-        try:
-            for msg in consumer:
-                # KafkaConsumer may have re-joined consumer group because of
-                # communication issue. Such event is invisible to client code
-                # and very likely results in duplicate archive. So we compare
-                # offset in the message against the last archived, and skip
-                # duplicates. It's kinda sad client has to do this for itself.
-                if msg.partition in archived_offsets:
-                    last_offset = archived_offsets[msg.partition]
-                    if last_offset >= msg.offset:
-                        logging.info('detected duplicate msg %s:%s, seeking to %s',
-                                     msg.partition, msg.offset, last_offset + 1)
-                        consumer.seek(TopicPartition(msg.topic, msg.partition),
-                                      last_offset + 1)
-                        continue
+    with open(args.config) as f:
+        config = yaml.safe_load(f)
 
-                logging.debug('msg: partition=%s offset=%s', msg.partition,
-                              msg.offset)
+    # command line options override config
+    if args.group:
+        config['kafka_group_id'] = args.group
 
-                tweet = msg.value.decode('utf-8').split('\n')[-2]
-                record = tweet_warc_record(tweet)
-                if record:
-                    # used for tracking
-                    record.headers.append((
-                        b'Archive-Source',
-                        bytes('{0.topic}/{0.partition}/{0.offset}'.format(msg), 'utf-8')
-                    ))
-                    if warc is None:
+    # logging level control: -v will log DEBUG for all but kafka.*
+    # -vv will log DEBUG including kafka.coordinator.*
+    # -vvv will log DEBUG including kafka.*
+    logging.basicConfig(
+        level=logging.DEBUG if args.loglevel > 0 else logging.INFO,
+        format='[%(asctime)s] %(levelname)s %(name)s %(message)s',
+        datefmt='%F %T'
+    )
+
+    if 'logging' in config:
+        logging.config.dictConfig(config['logging'])
+
+    if args.loglevel < 3:
+        logging.getLogger('kafka').setLevel(logging.INFO)
+    if args.loglevel == 2:
+        logging.getLogger('kafka.coordinator').setLevel(logging.INFO)
+
+    if args.recover_offsets:
+        exit(recover_offsets(args))
+
+    if args.seek:
+        # disable auto-commit
+        config['kafka_enable_auto_commit'] = False
+        consumer = start_consumer(config)
+        # this is a rudimentary recovery aid for advancing consumer offset.
+        # currently this app experiences unexpected revokation of assigned
+        # partition and subsequent failure to commit consumer offsets. When
+        # this happens, stop the app and advance offset with this.
+        seeks = []
+        parts = args.seek.split(',')
+        for part in parts:
+            target_partition, _, target_offset = part.strip().partition(':')
+            if not target_offset:
+                parser.error('--seek expects PARTITION:OFFSET[,PARTITION:OFFSET...]')
+            partition = TopicPartition(config.get('kafka_topic'),
+                                              int(target_partition))
+            offset = int(target_offset)
+            seeks.append((partition, offset))
+
+        msgs = consumer.poll(max_records=1)
+        logging.info('msgs=%s', msgs)
+        while True:
+            a = consumer.assignment()
+            if a:
+                missing_partitions = [tp for tp, o in seeks if tp not in a]
+                if missing_partitions:
+                    logging.error('partitions %s are missing in the assignment. '
+                                  'it may succeed if you try again,',
+                                  missing_partitions)
+                    consumer.close()
+                    exit(1)
+                if not all(tp in a for tp, o in seeks):
+                    parser.error('assignment {} is insufficient'.format(a))
+                break
+            logging.info('assignment=%s', a)
+            time.sleep(1.0)
+
+        for target_partition, target_offset in seeks:
+            offset = consumer.committed(target_partition)
+            # this must be identical to the committed offset.
+            position = consumer.position(target_partition)
+
+            logging.info('partition %s: current committed offset=%s position=%s',
+                         target_partition.partition, offset, position)
+            if target_offset == position:
+                logging.info('no need to change position')
+                continue
+
+            logging.info('seeking to %s', target_offset)
+            consumer.seek(target_partition, target_offset)
+            logging.info('new position=%s', consumer.position(target_partition))
+
+        consumer.commit()
+        consumer.close()
+        exit(0)
+
+    time_limit = config.get('warc_time_limit')
+    size_limit = config.get('warc_size_limit')
+
+    signal.signal(signal.SIGINT, interrupt)
+    signal.signal(signal.SIGTERM, interrupt)
+
+    if args.lock:
+        if os.path.isfile(args.lock):
+            logging.error(
+                "lock file %s exists. it means previous run was not shut "
+                "down cleanly. you may need to repair warc files and adjust "
+                "consumer offset before restarting. remove this file when ready",
+                args.lock)
+            # exit with code=2 so that supervisor won't retry launching.
+            exit(2)
+        with open(args.lock, "w") as f:
+            f.write("{}\n".format(os.getpid()))
+
+    consumer = start_consumer(config)
+
+    # coordinator may die because of communication breakdown. it can result in
+    # duplicate archive if offset has not been committed. we record offsets that
+    # has been successfully processed
+    # each partition to avoid
+    # avoid
+    archived_offsets = {}
+    warc = None
+    try:
+        while not interrupted:
+            if consumer is None:
+                consumer = start_consumer(config)
+            try:
+                for msg in consumer:
+                    # KafkaConsumer may have re-joined consumer group because of
+                    # communication issue. Such event is invisible to client code
+                    # and very likely results in duplicate archive. So we compare
+                    # offset in the message against the last archived, and skip
+                    # duplicates. It's kinda sad client has to do this for itself.
+                    if msg.partition in archived_offsets:
+                        last_offset = archived_offsets[msg.partition]
+                        if last_offset >= msg.offset:
+                            logging.info('detected duplicate msg %s:%s, seeking to %s',
+                                         msg.partition, msg.offset, last_offset + 1)
+                            consumer.seek(TopicPartition(msg.topic, msg.partition),
+                                          last_offset + 1)
+                            continue
+
+                    logging.debug('msg: partition=%s offset=%s', msg.partition,
+                                  msg.offset)
+
+                    tweet = msg.value.decode('utf-8').split('\n')[-2]
+                    record = tweet_warc_record(tweet)
+                    if record:
+                        # used for tracking
+                        record.headers.append((
+                            b'Archive-Source',
+                            '{0.topic}/{0.partition}/{0.offset}'.format(msg).encode('utf-8')
+                        ))
+                        if warc is None:
+                            try:
+                                warc = WarcFile(args.directory)
+                            except IOError as ex:
+                                logging.error('failed to create an WARC flle (%s)', ex)
+                                break
+
                         try:
-                            warc = WarcFile(args.directory)
+                            warc.write_record(record)
+                            archived_offsets[msg.partition] = msg.offset
                         except IOError as ex:
-                            logging.error('failed to create an WARC flle (%s)', ex)
+                            logging.error('failed to archive tweet (%s), rolling back',
+                                          ex)
+                            warc.rollback()
+                            # re-read the same msg again
+                            consumer.seek(TopicPartition(msg.topic, msg.partition),
+                                          msg.offset)
+                            consumer.commit()
+                            logging.info('pausing 5 seconds before continueing')
+                            time.sleep(5.0)
                             break
+                    else:
+                        logging.info('discarded %s/%s', msg.partition, msg.offset)
 
-                    try:
-                        warc.write_record(record)
-                        archived_offsets[msg.partition] = msg.offset
-                    except IOError as ex:
-                        logging.error('failed to archive tweet (%s), rolling back',
-                                      ex)
-                        warc.rollback()
-                        # re-read the same msg again
-                        consumer.seek(TopicPartition(msg.topic, msg.partition),
-                                      msg.offset)
-                        consumer.commit()
-                        logging.info('pausing 5 seconds before continueing')
-                        time.sleep(5.0)
+                    # app termination is checked only after each tweet is archived
+                    # to ensure all tweets are archived.
+                    if interrupted:
                         break
-                else:
-                    logging.info('discarded %s/%s', msg.partition, msg.offset)
 
-                # app termination is checked only after each tweet is archived
-                # to ensure all tweets are archived.
-                if interrupted:
-                    break
+                    if warc and warc.should_rollover(size_limit, time_limit):
+                        warc.close()
+                        warc = None
+                        consumer.commit()
 
-                if warc and warc.should_rollover(size_limit, time_limit):
-                    warc.close()
-                    warc = None
-                    consumer.commit()
-
-        except CommitFailedError as ex:
-            logging.error('explicit commit failed. restarting consumer')
-            consumer = None
-            continue
-
-        except AssertionError as ex:
-            # kafka-python uses "assert" for checking assumptions that
-            # fail sometimes
-            if re.match(r'Broker id \S+ not in current metadata', ex.message):
-                traceback.print_exc()
-                logging.error('restarting consumer')
+            except CommitFailedError as ex:
+                logging.error('explicit commit failed. restarting consumer')
                 consumer = None
                 continue
 
-            raise
+            except AssertionError as ex:
+                # kafka-python uses "assert" for checking assumptions that
+                # fail sometimes
+                if re.match(r'Broker id \S+ not in current metadata', ex.message):
+                    traceback.print_exc()
+                    logging.error('restarting consumer')
+                    consumer = None
+                    continue
 
-    logging.info('exiting by interrupt')
+                raise
 
-    exitcode = 0
-except Exception as ex:
-    logging.error('exiting by error', exc_info=1)
-    # 2 indicates serious error needing operator attention.
-    # by default supervisor won't restart if program exist with code 2.
-    exitcode = 2
-finally:
-    if warc is not None:
-        warc.close()
-        warc = None
+        logging.info('exiting by interrupt')
 
-    logging.info('archived_offsets is %s', archived_offsets)
+        exitcode = 0
+    except Exception as ex:
+        logging.error('exiting by error', exc_info=1)
+        # 2 indicates serious error needing operator attention.
+        # by default supervisor won't restart if program exit with code 2.
+        exitcode = 2
+    finally:
+        if warc is not None:
+            warc.close()
+            warc = None
 
-    if consumer is not None:
-        consumer.close()
+        logging.info('archived_offsets is %s', archived_offsets)
 
-    if args.lock:
-        try:
-            os.unlink(args.lock)
-        except OSError as ex:
-            logging.warning("failed to delete %s: %s", args.lock, ex)
+        if consumer is not None:
+            consumer.close()
 
-exit(exitcode)
+        if args.lock:
+            try:
+                os.unlink(args.lock)
+            except OSError as ex:
+                logging.warning("failed to delete %s: %s", args.lock, ex)
+
+    exit(exitcode)
+
+if __name__ == '__main__':
+    main()
