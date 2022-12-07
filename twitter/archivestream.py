@@ -20,7 +20,9 @@ import logging
 import argparse
 import time
 import json
-from tweetarchiver.twitterstream import Stream as TwitterStream
+# from tweetarchiver.twitterstream import Stream as TwitterStream
+
+from tweetarchiver.tweetstream import connect_to_endpoint
 
 from tweetarchiver.archiver import Archiver
 
@@ -52,9 +54,11 @@ archiver = Archiver(destdir=destdir)
 logging.info('starting up')
 
 try:    
-    tw_stream = TwitterStream()
-    for tw in tw_stream.connect():
-        archiver.archive_message(tw)
+    tw_stream = connect_to_endpoint()()
+    while True:
+        tweet = next(tw_stream)
+        if(tweet):
+            archiver.archive_message(tweet)
 except KeyboardInterrupt as ex:
     pass
 finally:

@@ -13,7 +13,9 @@ import io
 import time
 from email.utils import formatdate
 import json
-from tweetarchiver.twitterstream import Stream as TwitterStream
+# from tweetarchiver.twitterstream import Stream as TwitterStream
+
+from tweetarchiver.tweetstream import connect_to_endpoint
 
 from kafka import KafkaProducer
 
@@ -61,24 +63,28 @@ try:
     tw_config = conf.get('twitter')
     if not tw_config:
         raise ConfigError('configuration file must have [twitter] section')
+    bearer_token = tw_config.get('authoization')
+    if not bearer_token:
+        raise ConfigError('twitter.bearer_token config is required')
+    
 except ConfigError as ex:
     print(ex.message, file=sys.stderr)
     exit(1)
 
 common_headers = {
-    'Source': '/2/tweets/sample/stream',
+    'Source': 'https://api.twitter.com/2/tweets/sample/stream',
     }
 common_header_bytes = b''.join(
     '{}: {}\r\n'.format(n, v).encode('utf-8')
     for n, v in common_headers.items()
     )
 
-while True:
-    try:
-        producer = KafkaProducer(bootstrap_servers=server)
-
-        stream = TwitterStream()
-        for tweet in stream.connect():
+try:
+    producer = KafkaProducer(bootstrap_servers=server)
+    stream = connect_to_endpoint(bearer_token)
+    while True:
+        tweet = next(stream)
+        if(tweet):
             buf = io.BytesIO()
             buf.write(common_header_bytes)
             buf.write('Date: {}\r\n'.format(httpdate(time.time())).encode('ascii'))
@@ -92,9 +98,7 @@ while True:
             t = time.time() - t0
             logging.debug('message %d bytes %.0fmus', len(payload), t * 1000000)
 
-    except Exception as ex:
-        continue
-    except KeyboardInterrupt as ex:
-        pass
-    finally:
-        logging.info('terminating')
+except Exception as ex:
+    logging.info(ex)
+finally:
+    logging.info('terminating')
