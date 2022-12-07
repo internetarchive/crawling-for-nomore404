@@ -63,6 +63,10 @@ try:
     tw_config = conf.get('twitter')
     if not tw_config:
         raise ConfigError('configuration file must have [twitter] section')
+    bearer_token = tw_config.get('authoization')
+    if not bearer_token:
+        raise ConfigError('twitter.bearer_token config is required')
+    
 except ConfigError as ex:
     print(ex.message, file=sys.stderr)
     exit(1)
@@ -77,7 +81,7 @@ common_header_bytes = b''.join(
 
 try:
     producer = KafkaProducer(bootstrap_servers=server)
-    stream = connect_to_endpoint()
+    stream = connect_to_endpoint(bearer_token)
     while True:
         tweet = next(stream)
         if(tweet):
@@ -93,9 +97,7 @@ try:
             producer.send(topic, payload)
             t = time.time() - t0
             logging.debug('message %d bytes %.0fmus', len(payload), t * 1000000)
-            
-except KeyboardInterrupt as keyboardex:
-    pass
+
 except Exception as ex:
     logging.info(ex)
 finally:
