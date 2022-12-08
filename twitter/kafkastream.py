@@ -5,6 +5,7 @@ Sends tweets to kafka topic.
 """
 from __future__ import print_function, unicode_literals
 
+import sys
 import os
 from configobj import ConfigObj
 import logging
@@ -63,7 +64,7 @@ try:
     tw_config = conf.get('twitter')
     if not tw_config:
         raise ConfigError('configuration file must have [twitter] section')
-    bearer_token = tw_config.get('authoization')
+    bearer_token = tw_config.get('bearer_token')
     if not bearer_token:
         raise ConfigError('twitter.bearer_token config is required')
 

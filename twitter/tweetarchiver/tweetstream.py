@@ -147,7 +147,7 @@ def quicktest():
 
     logging.basicConfig(level=logging.INFO)
 
-    stream = connect_to_endpoint(config['twitter']['authorization'])
+    stream = connect_to_endpoint(config['twitter']['bearer_token'])
     for tw in stream:
         print(tw.decode('utf-8'))
 
