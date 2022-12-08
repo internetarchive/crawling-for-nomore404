@@ -12,7 +12,7 @@ import argparse
 import io
 import time
 from email.utils import formatdate
-import json
+
 # from tweetarchiver.twitterstream import Stream as TwitterStream
 
 from tweetarchiver.tweetstream import connect_to_endpoint
@@ -66,39 +66,40 @@ try:
     bearer_token = tw_config.get('authoization')
     if not bearer_token:
         raise ConfigError('twitter.bearer_token config is required')
-    
+
 except ConfigError as ex:
-    print(ex.message, file=sys.stderr)
+    print(ex, file=sys.stderr)
     exit(1)
 
 common_headers = {
     'Source': 'https://api.twitter.com/2/tweets/sample/stream',
-    }
+}
 common_header_bytes = b''.join(
     '{}: {}\r\n'.format(n, v).encode('utf-8')
     for n, v in common_headers.items()
-    )
+)
 
 try:
     producer = KafkaProducer(bootstrap_servers=server)
     stream = connect_to_endpoint(bearer_token)
-    while True:
-        tweet = next(stream)
-        if(tweet):
-            buf = io.BytesIO()
-            buf.write(common_header_bytes)
-            buf.write('Date: {}\r\n'.format(httpdate(time.time())).encode('ascii'))
-            buf.write(b'\r\n')
-            buf.write(json.dumps(tweet).encode('utf-8'))
-            buf.write(b'\r\n')
+    for tweet in stream:
+        if not tweet:
+            continue
 
-            payload = buf.getvalue()
-            t0 = time.time()
-            producer.send(topic, payload)
-            t = time.time() - t0
-            logging.debug('message %d bytes %.0fmus', len(payload), t * 1000000)
+        buf = io.BytesIO()
+        buf.write(common_header_bytes)
+        buf.write('Date: {}\r\n'.format(httpdate(time.time())).encode('ascii'))
+        buf.write(b'\r\n')
+        buf.write(tweet.rstrip())
+        buf.write(b'\r\n')
+
+        payload = buf.getvalue()
+        t0 = time.time()
+        producer.send(topic, payload)
+        t = time.time() - t0
+        logging.debug('message %d bytes %.0fmus', len(payload), t * 1000000)
 
 except Exception as ex:
-    logging.info(ex)
+    logging.error('error', exc_info=1)
 finally:
     logging.info('terminating')
