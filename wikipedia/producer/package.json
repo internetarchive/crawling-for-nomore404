@@ -10,7 +10,7 @@
   "license": "AGPL-3.0-or-later",
   "dependencies": {
     "cheerio": "^1.0.0-rc.12",
-    "express": "^4.16.4",
+    "express": "^4.19.2",
     "irc": "^0.5.2",
     "kafka-node": "^5.0.0",
     "prom-client": "^11.2.0",
