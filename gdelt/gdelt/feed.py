@@ -2,12 +2,17 @@
 #
 import sys
 import os
-
+import re
 import urllib2
-
 import logging
+
 import xml.etree.ElementTree as ET
+
+from urlparse import urlsplit
+from urllib2 import quote,unquote
 from ConfigParser import ConfigParser
+
+quoted_url = re.compile('^https?%3A%2F%2F', re.IGNORECASE)
 
 class Deduper(object):
     LAST_FILE = 'LAST'
@@ -58,6 +63,8 @@ class Deduper(object):
 
         self.lastf.close()
         self.thisf.close()
+        
+        
     def step(self):
         lastfile = os.path.join(self.datadir, self.LAST_FILE)
         thisfile = os.path.join(self.datadir, self.THIS_FILE)
@@ -66,6 +73,8 @@ class Deduper(object):
         else:
             self.log.warn('%s does not exist, step is no-op.', thisfile)
 
+
+            
 class FeedReader(object):
     """
     Simple parser for RSS feed.
@@ -76,6 +85,8 @@ class FeedReader(object):
         self.parse = ET.iterparse(source, ['start', 'end'])
 
         self._item = None
+        self.log = logging.getLogger(__name__)
+        
     def __iter__(self):
         return self
     def next(self):
@@ -89,4 +100,22 @@ class FeedReader(object):
                     self._item = None
                 elif elem.tag == 'link':
                     if self._item is not None:
-                        return elem.text
+                        if elem.text:
+                            try:
+                                urlsplit(elem.text)
+                            except Exception as ex:
+                                self.log.error(
+                                    'urlsplit exception: {}'.format(elem.text),
+                                    exc_info=1)
+                                continue
+                            
+                            if not re.match(quoted_url, elem.text):
+                                return elem.text
+                            else:
+                                unq = unquote(elem.text)
+                                # quote anon-ascii characters.
+                                chars = [quote(c) if ord(c)>127 else c for c in unq]
+                                url = ''.join(chars)
+                                return url
+                        else:
+                            continue
