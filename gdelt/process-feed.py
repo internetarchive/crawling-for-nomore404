@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/1/crawling/gdelt0/bin/python
 #
 import sys
 import os
@@ -16,6 +16,8 @@ import yaml
 from argparse import ArgumentParser
 from gdelt.feed import FeedReader, Deduper
 from crawllib.headquarter import HeadquarterSubmitter
+
+
 
 CONFIG_FILE = 'config.yaml'
 
@@ -37,24 +39,16 @@ def httpdate(dt):
     """format time tuple `dt` in HTTP Date format."""
     return time.strftime('%a, %d %b %Y %H:%M:%S %Z', dt)
 
-class FeedScheduler(object):
-    def __init__(self, feed_url, hqbase, hqjob,
-                 datadir='data', timeout=20,
-                 check_interval=-1):
-        self.log = logging.getLogger(
-            'gdelt.{0.__name__}'.format(FeedScheduler))
+class Feed(object):
+    def __init__(self, name, feed_url, datadir, log, timeout, hqclient):
+        self.name = name
         self.feed_url = feed_url
-        self.hqbase = hqbase
-        self.hqjob = hqjob
         self.datadir = datadir
-        self.timeout = int(timeout)
-        self.check_interval = int(check_interval)
-
-        assert os.path.isdir(self.datadir)
-
+        self.log = log
+        self.timeout = timeout
+        self.hqclient = hqclient
         self.deduper = Deduper(self.datadir)
-        self.hqclient = HeadquarterSubmitter(self.hqbase, self.hqjob)
-
+        
         rfiles = [fn for fn in os.listdir(self.datadir)
                   if re.match(r'feed-\d{14}$', fn)]
         if rfiles:
@@ -65,28 +59,8 @@ class FeedScheduler(object):
                     time.strptime(max(rfiles)[-14:], '%Y%m%d%H%M%S')))
         else:
             self.last_time = None
-
+    
     def process(self):
-        while True:
-            t = time.time()
-            try:
-                self.process1()
-            except KeyboardInterrupt as ex:
-                raise
-            except Exception as ex:
-                self.log.error('process1 failed', exc_info=1)
-            if self.check_interval < 0:
-                self.log.debug('exiting because check_interval < 0')
-                break
-            if test_mode:
-                self.log.debug('exiting because test_mode=True')
-                break
-            dt = t + self.check_interval - time.time()
-            if dt >= 1.0:
-                self.log.debug('sleeping %ds until next cycle', int(dt))
-                time.sleep(dt)
-
-    def process1(self):
         # file name is in UTC. 
         rid = time.strftime('%Y%m%d%H%M%S', time.gmtime())
         rfile = os.path.join(self.datadir, 'feed-{}'.format(rid))
@@ -121,7 +95,7 @@ class FeedScheduler(object):
             return
 
         self.last_time = time.gmtime()
-        
+                    
         urlcount = 0
         slfile = os.path.join(self.datadir, 'sche-{}'.format(rid))
         with open(slfile, 'wb') as sl:
@@ -139,7 +113,60 @@ class FeedScheduler(object):
                       urlcount, os.path.basename(slfile))
 
         self.deduper.step()
+                
+class FeedScheduler(object):
+    def __init__(self, feeds, hqbase, hqjob, datadir='data', timeout=20,
+                 check_interval=-1):
+        self.hqbase = hqbase
+        self.hqjob = hqjob
+        self.hqclient = HeadquarterSubmitter(self.hqbase, self.hqjob)
+        self.check_interval = int(check_interval)
+        self.log = logging.getLogger(
+            'gdelt.{0.__name__}'.format(FeedScheduler))
+        self.datadir = datadir
+        assert os.path.isdir(self.datadir)
+        
+        self.feeds = []
+        for f in feeds:
+            flog = logging.getLogger('gdelt.Feed.{}'.format(f))
+            furl = feeds[f]['url']
+            fdatadir = os.path.join(self.datadir,f)
+            
+            assert os.path.isdir(fdatadir)
+            
+            fconfig = {'name':f, 
+                    'feed_url': furl,
+                    'datadir':fdatadir,
+                    'log':flog,
+                    'timeout':int(timeout),
+                    'hqclient': self.hqclient,
+                    }
+            feed = Feed(**fconfig)
+            self.feeds.append(feed)
+        
+    def process(self):  
+        while True:
+            t = time.time()
+            for feed in self.feeds:
+                try:
+                    feed.process()
+                except KeyboardInterrupt as ex:
+                    raise
+                except Exception as ex:
+                    feed.log.error('process failed',exc_info=1)
+            if self.check_interval < 0:
+                self.log.debug('exiting because check_interval < 0')
+                break
+            if test_mode:
+                self.log.debug('exiting because test_mode=True')
+                break
+            dt = t + self.check_interval - time.time()
+            if dt >= 1.0:
+                self.log.debug('sleeping %ds until next cycle', int(dt))
+                time.sleep(dt)
 
+        
+    
 parser = ArgumentParser()
 parser.add_argument('--test', action='store_true', default=False,
                     help='disables submission to HQ')
@@ -169,6 +196,7 @@ else:
 if 'gdelt' not in config:    
     print >>sys.stderr, "configuration must have 'gdelt' section"
     exit(1)
+
 
 sch = FeedScheduler(**config['gdelt'])
 try:
