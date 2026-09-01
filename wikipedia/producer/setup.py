@@ -16,7 +16,7 @@ setup(
     version="0.1.1",
     install_requires=[
         "nodeenv",
-        "kafka-python==0.9.3"
+        "kafka-python==2.3.2"
         ],
     scripts=[
         "run-monitor.sh",
